@@ -1,28 +1,33 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import { MaterialIcons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Image } from 'expo-image';
-import * as ImagePicker from 'expo-image-picker';
-import { useRouter } from 'expo-router';
 import { AppHeader } from '../src/components/AppHeader';
 import { DisclaimerModal } from '../src/components/DisclaimerModal';
 import { EmergencyButton } from '../src/components/EmergencyButton';
-import { LanguageSelector } from '../src/components/LanguageSelector';
 import { Colors } from '../src/constants/colors';
 import { Strings } from '../src/constants/strings';
+import { Typography } from '../src/constants/typography';
+import { useAudioCapture } from '../src/hooks/useAudioCapture';
 import { useConsultation } from '../src/hooks/useConsultation';
 import { useDisclaimer } from '../src/hooks/useDisclaimer';
+import { useTextToSpeech } from '../src/hooks/useTextToSpeech';
 import { analyzeMedicine } from '../src/services/medicineApi';
+import { transcribeAudio } from '../src/services/transcriptionApi';
 import { ClinicalAction, MedicineAnalysisResponse } from '../src/types';
+
+let hasPlayedScannerIntroThisLaunch = false;
 
 function getActionStyles(action?: ClinicalAction) {
   switch (action) {
@@ -45,17 +50,63 @@ function getConfidenceLabel(value?: string): string | null {
 export default function MedicineScannerScreen() {
   const router = useRouter();
   const [selectedImage, setSelectedImage] = useState<ImagePicker.ImagePickerAsset | null>(null);
-  const [contextNote, setContextNote] = useState('');
+  const [spokenContext, setSpokenContext] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [isScannerReady, setIsScannerReady] = useState(false);
   const [result, setResult] = useState<MedicineAnalysisResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { hasSeenDisclaimer, isLoading, acknowledgeDisclaimer } = useDisclaimer();
-  const { isReady, language, setLanguage, sessionId } = useConsultation();
+  const { isReady, language, sessionId } = useConsultation();
+  const { isRecording, startRecording, stopRecording } = useAudioCapture();
+  const { speak, stop: stopSpeaking, isGenerating, isSpeaking } = useTextToSpeech();
 
   const actionStyle = useMemo(() => getActionStyles(result?.action), [result?.action]);
   const confidenceLabel = useMemo(() => getConfidenceLabel(result?.confidence), [result?.confidence]);
+  const scannerIntro = useMemo(
+    () => [Strings.scannerSubtitle, Strings.scannerTip, Strings.scannerImageTip].join('. '),
+    [],
+  );
+
+  useEffect(() => {
+    if (!isReady || isLoading || !hasSeenDisclaimer) {
+      return;
+    }
+
+    if (hasPlayedScannerIntroThisLaunch) {
+      setIsScannerReady(true);
+      return;
+    }
+
+    hasPlayedScannerIntroThisLaunch = true;
+    setIsScannerReady(false);
+
+    let cancelled = false;
+
+    async function playScannerIntro() {
+      try {
+        await speak(scannerIntro);
+      } catch (err) {
+        console.error('Scanner intro failed:', err);
+      } finally {
+        if (!cancelled) {
+          setIsScannerReady(true);
+        }
+      }
+    }
+
+    playScannerIntro();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hasSeenDisclaimer, isLoading, isReady, scannerIntro, speak]);
 
   const handleCamera = useCallback(async () => {
+    if (!isScannerReady) {
+      return;
+    }
+
     setError(null);
 
     const permission = await ImagePicker.requestCameraPermissionsAsync();
@@ -75,9 +126,13 @@ export default function MedicineScannerScreen() {
       setSelectedImage(response.assets[0]);
       setResult(null);
     }
-  }, []);
+  }, [isScannerReady]);
 
   const handleLibrary = useCallback(async () => {
+    if (!isScannerReady) {
+      return;
+    }
+
     setError(null);
 
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -97,9 +152,65 @@ export default function MedicineScannerScreen() {
       setSelectedImage(response.assets[0]);
       setResult(null);
     }
-  }, []);
+  }, [isScannerReady]);
+
+  const handleContextRecording = useCallback(async () => {
+    if (!isScannerReady) {
+      return;
+    }
+
+    setError(null);
+
+    if (isRecording) {
+      setIsTranscribing(true);
+
+      try {
+        const audio = await stopRecording();
+        const transcript = (await transcribeAudio(audio, language)).trim();
+
+        if (!transcript) {
+          setError(Strings.emptyTranscript);
+          return;
+        }
+
+        setSpokenContext(transcript);
+        setResult(null);
+      } catch (err) {
+        console.error('Context transcription failed:', err);
+        setError(err instanceof Error ? err.message : Strings.networkError);
+      } finally {
+        setIsTranscribing(false);
+      }
+
+      return;
+    }
+
+    if (isSpeaking || isGenerating) {
+      stopSpeaking();
+    }
+
+    try {
+      await startRecording();
+    } catch (err) {
+      console.error('Context recording failed:', err);
+      setError(err instanceof Error ? err.message : Strings.micPermissionDenied);
+    }
+  }, [
+    isGenerating,
+    isRecording,
+    isScannerReady,
+    isSpeaking,
+    language,
+    startRecording,
+    stopRecording,
+    stopSpeaking,
+  ]);
 
   const handleAnalyze = useCallback(async () => {
+    if (!isScannerReady) {
+      return;
+    }
+
     if (!selectedImage?.base64) {
       setError(Strings.scannerNoImage);
       return;
@@ -108,11 +219,15 @@ export default function MedicineScannerScreen() {
     setIsAnalyzing(true);
     setError(null);
 
+    if (isSpeaking || isGenerating) {
+      stopSpeaking();
+    }
+
     try {
       const response = await analyzeMedicine({
         imageBase64: selectedImage.base64,
         mimeType: selectedImage.mimeType || 'image/jpeg',
-        contextNote: contextNote.trim() || undefined,
+        spokenContext: spokenContext.trim() || undefined,
         language,
         sessionId,
       });
@@ -123,10 +238,27 @@ export default function MedicineScannerScreen() {
       }
 
       setResult(response);
+
+      if (response.content) {
+        await speak(response.content);
+      }
+    } catch (err) {
+      console.error('Medicine analysis failed:', err);
+      setError(err instanceof Error ? err.message : Strings.networkError);
     } finally {
       setIsAnalyzing(false);
     }
-  }, [contextNote, language, selectedImage, sessionId]);
+  }, [
+    isGenerating,
+    isSpeaking,
+    isScannerReady,
+    language,
+    selectedImage,
+    sessionId,
+    speak,
+    spokenContext,
+    stopSpeaking,
+  ]);
 
   if (!isReady || isLoading) {
     return null;
@@ -138,18 +270,20 @@ export default function MedicineScannerScreen() {
       style={styles.gradient}
     >
       <SafeAreaView style={styles.container} edges={['top']}>
-        <AppHeader />
-
-        <View style={styles.headerActions}>
-          <Pressable
-            style={({ pressed }) => [styles.backButton, pressed && styles.backButtonPressed]}
-            onPress={() => router.back()}
-            accessibilityRole="button"
-            accessibilityLabel="Return to voice chat"
-          >
-            <Text style={styles.backButtonText}>{Strings.scannerBack}</Text>
-          </Pressable>
-          <EmergencyButton />
+        <View style={styles.headerBlock}>
+          <View style={styles.headerActions}>
+            <Pressable
+              style={({ pressed }) => [styles.backButton, pressed && styles.backButtonPressed]}
+              onPress={() => router.back()}
+              accessibilityRole="button"
+              accessibilityLabel="Return to voice chat"
+            >
+              <MaterialIcons name="arrow-back" size={18} color={Colors.primary} />
+              <Text style={styles.backButtonText}>{Strings.scannerBack}</Text>
+            </Pressable>
+            <EmergencyButton size={44} />
+          </View>
+          <AppHeader compact />
         </View>
 
         <ScrollView
@@ -171,7 +305,7 @@ export default function MedicineScannerScreen() {
                 />
               ) : (
                 <View style={styles.emptyPreview}>
-                  <Text style={styles.emptyPreviewIcon}>💊</Text>
+                  <MaterialIcons name="medication" size={34} color={Colors.primary} />
                   <Text style={styles.emptyPreviewTitle}>{Strings.scannerTitle}</Text>
                   <Text style={styles.emptyPreviewText}>{Strings.scannerSubtitle}</Text>
                 </View>
@@ -180,14 +314,24 @@ export default function MedicineScannerScreen() {
 
             <View style={styles.buttonRow}>
               <Pressable
-                style={({ pressed }) => [styles.secondaryButton, pressed && styles.buttonPressed]}
+                style={({ pressed }) => [
+                  styles.secondaryButton,
+                  !isScannerReady && styles.primaryButtonDisabled,
+                  pressed && isScannerReady && styles.buttonPressed,
+                ]}
                 onPress={handleCamera}
+                disabled={!isScannerReady}
               >
                 <Text style={styles.secondaryButtonText}>{Strings.scannerTakePhoto}</Text>
               </Pressable>
               <Pressable
-                style={({ pressed }) => [styles.secondaryButton, pressed && styles.buttonPressed]}
+                style={({ pressed }) => [
+                  styles.secondaryButton,
+                  !isScannerReady && styles.primaryButtonDisabled,
+                  pressed && isScannerReady && styles.buttonPressed,
+                ]}
                 onPress={handleLibrary}
+                disabled={!isScannerReady}
               >
                 <Text style={styles.secondaryButtonText}>{Strings.scannerChoosePhoto}</Text>
               </Pressable>
@@ -195,27 +339,59 @@ export default function MedicineScannerScreen() {
           </View>
 
           <View style={styles.card}>
-            <LanguageSelector selectedLanguage={language} onSelectLanguage={setLanguage} />
+            {/* <LanguageSelector selectedLanguage={language} onSelectLanguage={setLanguage} /> */}
 
             <Text style={styles.contextLabel}>{Strings.scannerContextLabel}</Text>
-            <TextInput
-              style={styles.contextInput}
-              value={contextNote}
-              onChangeText={setContextNote}
-              placeholder={Strings.scannerContextPlaceholder}
-              placeholderTextColor={Colors.textSecondary}
-              multiline
-              textAlignVertical="top"
-            />
+            {/* <Text style={styles.contextDescription}>
+              {isRecording ? Strings.scannerContextRecording : Strings.scannerContextIdle}
+            </Text> */}
+
+            <Pressable
+              style={({ pressed }) => [
+                styles.recordButton,
+                isRecording && styles.recordButtonActive,
+                (!isScannerReady || isTranscribing || isAnalyzing) && styles.primaryButtonDisabled,
+                pressed && isScannerReady && !isTranscribing && !isAnalyzing && styles.buttonPressed,
+              ]}
+              onPress={handleContextRecording}
+              disabled={!isScannerReady || isTranscribing || isAnalyzing}
+            >
+              {isTranscribing ? (
+                <View style={styles.loadingRow}>
+                  <ActivityIndicator color={Colors.textLight} size="small" />
+                  <Text style={styles.primaryButtonText}>{Strings.thinking}</Text>
+                </View>
+              ) : (
+                <View style={styles.recordButtonContent}>
+                  <MaterialIcons
+                    name={isRecording ? 'stop' : 'mic'}
+                    size={18}
+                    color={Colors.textLight}
+                  />
+                  <Text style={styles.primaryButtonText}>
+                    {spokenContext ? Strings.scannerContextRerecord : Strings.scannerContextAction}
+                  </Text>
+                </View>
+              )}
+            </Pressable>
+
+            {spokenContext ? (
+              <View style={styles.transcriptCard}>
+                <Text style={styles.transcriptLabel}>{Strings.scannerContextTranscript}</Text>
+                <Text style={styles.transcriptText}>{spokenContext}</Text>
+              </View>
+            ) : (
+              <Text style={styles.contextHint}>{Strings.scannerContextMissing}</Text>
+            )}
 
             <Pressable
               style={({ pressed }) => [
                 styles.primaryButton,
-                (!selectedImage || isAnalyzing) && styles.primaryButtonDisabled,
-                pressed && selectedImage && !isAnalyzing && styles.buttonPressed,
+                (!isScannerReady || !selectedImage || isAnalyzing || isRecording || isTranscribing) && styles.primaryButtonDisabled,
+                pressed && isScannerReady && selectedImage && !isAnalyzing && !isRecording && !isTranscribing && styles.buttonPressed,
               ]}
               onPress={handleAnalyze}
-              disabled={!selectedImage || isAnalyzing}
+              disabled={!isScannerReady || !selectedImage || isAnalyzing || isRecording || isTranscribing}
             >
               {isAnalyzing ? (
                 <View style={styles.loadingRow}>
@@ -284,13 +460,15 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  headerBlock: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
   headerActions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginHorizontal: 16,
-    marginTop: 4,
-    marginBottom: 8,
+    marginBottom: 4,
   },
   scrollContent: {
     paddingHorizontal: 16,
@@ -310,19 +488,18 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   cardHeader: {
-    fontSize: 18,
-    fontWeight: '800',
+    ...Typography.title,
     color: Colors.primary,
   },
   cardSubheader: {
+    ...Typography.body,
     marginTop: 4,
-    fontSize: 13,
     lineHeight: 20,
     color: Colors.textSecondary,
   },
   tipText: {
+    ...Typography.caption,
     marginTop: 6,
-    fontSize: 12,
     lineHeight: 18,
     color: Colors.textSecondary,
   },
@@ -345,18 +522,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 24,
   },
-  emptyPreviewIcon: {
-    fontSize: 34,
-    marginBottom: 12,
-  },
   emptyPreviewTitle: {
-    fontSize: 18,
-    fontWeight: '700',
+    ...Typography.title,
+    marginTop: 12,
     color: Colors.primary,
   },
   emptyPreviewText: {
+    ...Typography.body,
     marginTop: 8,
-    fontSize: 13,
     lineHeight: 19,
     textAlign: 'center',
     color: Colors.textSecondary,
@@ -374,13 +547,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  recordButton: {
+    marginTop: 12,
+    backgroundColor: Colors.primary,
+    borderRadius: 18,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  recordButtonActive: {
+    backgroundColor: Colors.emergency,
+  },
   primaryButtonDisabled: {
     opacity: 0.6,
   },
   primaryButtonText: {
+    ...Typography.bodyStrong,
     color: Colors.textLight,
-    fontSize: 15,
-    fontWeight: '700',
   },
   secondaryButton: {
     flex: 1,
@@ -393,51 +576,67 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   secondaryButtonText: {
+    ...Typography.bodyStrong,
     color: Colors.primary,
-    fontSize: 14,
-    fontWeight: '700',
   },
   buttonPressed: {
     opacity: 0.86,
   },
   backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     backgroundColor: Colors.frostedCard,
     borderRadius: 18,
     borderWidth: 1,
     borderColor: Colors.frostedCardBorder,
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     paddingVertical: 10,
   },
   backButtonPressed: {
     opacity: 0.86,
   },
   backButtonText: {
+    ...Typography.caption,
     color: Colors.primary,
-    fontSize: 13,
     fontWeight: '700',
   },
   contextLabel: {
-    marginTop: 18,
-    marginBottom: 8,
-    fontSize: 10,
-    fontWeight: '700',
+    ...Typography.title,
+    marginBottom: 15,
     color: Colors.primary,
-    letterSpacing: 2,
   },
-  contextInput: {
-    minHeight: 110,
+  contextDescription: {
+    ...Typography.body,
+    color: Colors.textSecondary,
+  },
+  contextHint: {
+    ...Typography.caption,
+    marginTop: 10,
+    color: Colors.textSecondary,
+    lineHeight: 18,
+  },
+  transcriptCard: {
+    marginTop: 14,
     borderRadius: 18,
     borderWidth: 1,
     borderColor: 'rgba(124,58,237,0.12)',
     backgroundColor: 'rgba(255,255,255,0.75)',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 14,
+    padding: 14,
+  },
+  transcriptLabel: {
+    ...Typography.label,
+    color: Colors.primary,
+    marginBottom: 6,
+  },
+  transcriptText: {
+    ...Typography.body,
     color: Colors.text,
+    lineHeight: 21,
   },
   errorText: {
+    ...Typography.caption,
     marginTop: 12,
-    fontSize: 13,
     lineHeight: 19,
     color: Colors.emergencyDark,
     textAlign: 'center',
@@ -446,6 +645,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+  },
+  recordButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   resultMetaRow: {
     flexDirection: 'row',
@@ -461,7 +665,7 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
   },
   resultChipText: {
-    fontSize: 12,
+    ...Typography.caption,
     fontWeight: '700',
     color: Colors.primary,
   },
@@ -470,5 +674,6 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     color: Colors.text,
     marginBottom: 16,
+    fontWeight: '500',
   },
 });

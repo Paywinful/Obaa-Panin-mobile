@@ -9,7 +9,8 @@ export const Strings = {
 
   // Status indicators
   readyToListen: 'Ready to listen',
-  tapToSpeak: 'Tap the mic to speak',
+  tapToSpeak: 'Tap to start speaking',
+  tapToStop: 'Tap again to stop recording',
   listening: 'Listening...',
   thinking: 'Thinking...',
   speaking: 'Speaking...',
@@ -17,6 +18,7 @@ export const Strings = {
   // Conversation
   conversationHeader: 'Conversation',
   conversationSubheader: 'Your conversation will appear here',
+  openingGreeting: 'Me din de Obaa Panin. Mewɔ ha sɛ, mɛboa wo. Ka kyerɛ me, nea ɛhaw wo.',
   tapMicStart: 'Tap the microphone and\nstart speaking',
   messagesWillAppear: 'Messages will appear here',
 
@@ -24,23 +26,29 @@ export const Strings = {
   languageLabel: 'LANGUAGE',
 
   // Scanner
-  scannerCta: 'Scan Medicine',
-  scannerTitle: 'Medicine Scanner',
-  scannerSubtitle: 'Take a clear photo of a packet, blister, or label',
-  scannerTip: 'One medicine per photo works best',
-  scannerTakePhoto: 'Take Photo',
-  scannerChoosePhoto: 'Choose Photo',
-  scannerAnalyze: 'Analyze Medicine',
-  scannerAnalyzing: 'Reviewing medicine...',
-  scannerResultTitle: 'Clinical Review',
-  scannerContextLabel: 'ADD CONTEXT',
-  scannerContextPlaceholder:
-    'Optional: pregnancy stage, breastfeeding, who prescribed it, or other medicines you are taking.',
-  scannerNoImage: 'Select or take a photo before analyzing.',
-  scannerCameraPermissionDenied: 'Camera access is needed to take a medicine photo.',
-  scannerLibraryPermissionDenied: 'Photo library access is needed to choose a medicine photo.',
-  scannerImageTip: 'Show the medicine name and strength if possible.',
-  scannerRetake: 'Retake Photo',
+  scannerCta: 'Twere Aduro No',
+  scannerTitle: 'Aduro Twerefoɔ',
+  scannerSubtitle: 'Fa mfonini a ɛmu da hɔ firi aduro no kɔtɔku anaa ne ho nkrataa so.',
+  scannerTip: 'Aduro baako, mfonini baako na ɛyɛ paa.',
+  scannerTakePhoto: 'Fa Mfonini',
+  scannerChoosePhoto: 'Yi Mfonini',
+  scannerAnalyze: 'Hwɛ Aduro No Mu',
+  scannerAnalyzing: 'Yɛrehwɛ aduro no mu...',
+  scannerResultTitle: 'Ayaresa Mu Nhwehwɛmu',
+  scannerContextLabel: 'Ka nea ɛhia wo',
+  scannerContextIdle:
+    'Kyerɛ neɛma foforɔ bi te sɛ nyinsɛn bɔberɛ, yadeɛ nkaeɛ, anaa obi a ɔhyɛɛ wo saa aduro yi.',
+  scannerContextRecording: 'Yɛregye wo nne ato hɔ...',
+  scannerContextTranscript: 'Nne Nkyerɛwee',
+  scannerContextAction: 'Kyerɛ Mu',
+  scannerContextRerecord: 'San Kyere Mu',
+  scannerContextMissing:
+    'Wotumi hwɛ aduro no mu a wonkyerɛɛ mu, nanso sɛ wokyerɛ mu a ɛboa ma yenya akwankyerɛ a ɛyɛ hu koraa.',
+  scannerNoImage: 'Yi mfonini anaa fa mfonini ansa na woahwɛ mu.',
+  scannerCameraPermissionDenied: 'Yɛhia kwan kɔ wo kamera mu na woatumi afa aduro no mfonini.',
+  scannerLibraryPermissionDenied: 'Yɛhia kwan kɔ wo mfonini koraeɛ mu na woatumi ayi aduro mfonini.',
+  scannerImageTip: 'Ma aduro no din, ne ne ho den, nna adi sɛ ɛbɛyɛ yie a.',
+  scannerRetake: 'San Fa Mfonini',
   scannerBack: 'Voice Chat',
 
   // Disclaimer
@@ -55,7 +63,7 @@ export const Strings = {
   // Welcome
   welcomeMessage:
     'Hello! I\'m Obaa Panin, your pregnancy companion. ' +
-    'Tap the microphone to ask me anything about pregnancy, ' +
+    'Tap the microphone to start recording and ask me anything about pregnancy, ' +
     'childbirth, or newborn care.',
 
   // Errors

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, Pressable, Modal, FlatList } from 'react-native';
 import { Colors } from '../constants/colors';
 import { Strings } from '../constants/strings';
+import { Typography } from '../constants/typography';
 import { LanguageCode } from '../types';
 
 interface LanguageOption {
@@ -72,10 +73,8 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   label: {
-    fontSize: 10,
-    fontWeight: '700',
+    ...Typography.label,
     color: Colors.primary,
-    letterSpacing: 2,
   },
   selector: {
     flexDirection: 'row',
@@ -89,7 +88,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   selectorText: {
-    fontSize: 14,
+    ...Typography.body,
     fontWeight: '600',
     color: Colors.text,
   },
@@ -126,6 +125,7 @@ const styles = StyleSheet.create({
   optionText: {
     fontSize: 15,
     color: Colors.text,
+    fontWeight: '500',
   },
   optionTextSelected: {
     color: Colors.primary,

@@ -3,6 +3,7 @@ import { FlatList, View, Text, StyleSheet } from 'react-native';
 import { ChatBubble } from './ChatBubble';
 import { Colors } from '../constants/colors';
 import { Strings } from '../constants/strings';
+import { Typography } from '../constants/typography';
 import { Message } from '../types';
 
 interface ConversationViewProps {
@@ -27,7 +28,7 @@ export function ConversationView({ messages }: ConversationViewProps) {
         <Text style={styles.cardSubheader}>{Strings.conversationSubheader}</Text>
         <View style={styles.emptyContent}>
           <View style={styles.chatIconContainer}>
-            <Text style={styles.chatIcon}>💬</Text>
+            <Text style={styles.chatIcon}>...</Text>
           </View>
           <Text style={styles.tapText}>{Strings.tapMicStart}</Text>
           <Text style={styles.messagesText}>{Strings.messagesWillAppear}</Text>
@@ -70,12 +71,12 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   cardHeader: {
+    ...Typography.title,
     fontSize: 16,
-    fontWeight: '700',
     color: Colors.primary,
   },
   cardSubheader: {
-    fontSize: 12,
+    ...Typography.caption,
     color: Colors.textSecondary,
     marginTop: 2,
     marginBottom: 8,
@@ -96,17 +97,19 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   chatIcon: {
-    fontSize: 24,
+    fontSize: 18,
+    fontWeight: '800',
+    color: Colors.primary,
   },
   tapText: {
-    fontSize: 14,
+    ...Typography.body,
     color: Colors.primary,
     textAlign: 'center',
     lineHeight: 20,
     marginBottom: 8,
   },
   messagesText: {
-    fontSize: 12,
+    ...Typography.caption,
     color: Colors.textSecondary,
     textAlign: 'center',
   },

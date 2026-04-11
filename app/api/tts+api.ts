@@ -1,24 +1,4 @@
-import { JWT } from 'google-auth-library';
 const TTS_ENDPOINT = 'https://akan-tts-194975005212.europe-west4.run.app';
-
-const credentials = (() => {
-  try {
-    const creds = require('../../google-credentials.json');
-    return { clientEmail: creds.client_email, privateKey: creds.private_key };
-  } catch {
-    return { clientEmail: '', privateKey: '' };
-  }
-})();
-
-const jwtClient = new JWT({
-  email: credentials.clientEmail,
-  key: credentials.privateKey,
-});
-
-async function getIdToken(): Promise<string> {
-  const token = await jwtClient.fetchIdToken(TTS_ENDPOINT);
-  return token;
-}
 
 export async function POST(request: Request): Promise<Response> {
   try {
@@ -30,14 +10,10 @@ export async function POST(request: Request): Promise<Response> {
         { status: 400, headers: { 'Content-Type': 'application/json' } },
       );
     }
-
-    const idToken = await getIdToken();
-
     const ttsResponse = await fetch(TTS_ENDPOINT, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${idToken}`,
       },
       body: JSON.stringify({
         text,

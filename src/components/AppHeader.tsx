@@ -1,9 +1,14 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { Colors } from '../constants/colors';
 import { Strings } from '../constants/strings';
+import { Typography } from '../constants/typography';
 
-export function AppHeader() {
+interface AppHeaderProps {
+  compact?: boolean;
+}
+
+export function AppHeader({ compact = false }: AppHeaderProps) {
   return (
     <View style={styles.container}>
       <View style={styles.titleRow}>
@@ -19,26 +24,30 @@ export function AppHeader() {
 const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
-    paddingVertical: 12,
+    // paddingVertical: 5,
   },
   titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 5,
   },
   flower: {
     fontSize: 18,
+    color: Colors.primaryLight,
+    fontWeight: '700',
+  },
+  flowerCompact: {
+    fontSize: 16,
   },
   appName: {
-    fontSize: 28,
-    fontWeight: '800',
+    ...Typography.hero,
     color: Colors.primary,
   },
   tagline: {
-    fontSize: 11,
+    ...Typography.label,
     color: Colors.primaryLight,
-    letterSpacing: 3,
     marginTop: 2,
-    fontWeight: '600',
+    opacity: 0.92,
+    marginBottom: 6,
   },
 });

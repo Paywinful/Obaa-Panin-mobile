@@ -1,26 +1,26 @@
-import React, { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, Platform, Pressable } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useAudioRecorder, RecordingPresets, AudioModule } from 'expo-audio';
 import { useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { AppHeader } from '../src/components/AppHeader';
+import { ConversationView } from '../src/components/ConversationView';
+import { DisclaimerModal } from '../src/components/DisclaimerModal';
+import { EmergencyButton } from '../src/components/EmergencyButton';
+import { GlowingOrb } from '../src/components/GlowingOrb';
+import { StatusIndicator } from '../src/components/StatusIndicator';
+import { TalkButton } from '../src/components/TalkButton';
 import { Colors } from '../src/constants/colors';
 import { Strings } from '../src/constants/strings';
-import { getApiUrl } from '../src/utils/getApiUrl';
-import { useTextToSpeech } from '../src/hooks/useTextToSpeech';
-import { useDisclaimer } from '../src/hooks/useDisclaimer';
+import { Typography } from '../src/constants/typography';
+import { useAudioCapture } from '../src/hooks/useAudioCapture';
 import { useConsultation } from '../src/hooks/useConsultation';
-import { AppHeader } from '../src/components/AppHeader';
-import { GlowingOrb } from '../src/components/GlowingOrb';
-import { LanguageSelector } from '../src/components/LanguageSelector';
-import { TalkButton } from '../src/components/TalkButton';
-import { EmergencyButton } from '../src/components/EmergencyButton';
-import { ConversationView } from '../src/components/ConversationView';
-import { StatusIndicator } from '../src/components/StatusIndicator';
-import { DisclaimerModal } from '../src/components/DisclaimerModal';
+import { useDisclaimer } from '../src/hooks/useDisclaimer';
+import { useTextToSpeech } from '../src/hooks/useTextToSpeech';
+import { sendChatMessage } from '../src/services/chatApi';
+import { transcribeAudio } from '../src/services/transcriptionApi';
 import { AppPhase, Message } from '../src/types';
-
-const ASR_ENDPOINT = 'https://whisper-service-194975005212.europe-west4.run.app/transcribe';
 
 let messageIdCounter = 0;
 function createMessage(role: 'user' | 'assistant', content: string): Message {
@@ -37,119 +37,119 @@ export default function VoiceChatScreen() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [phase, setPhase] = useState<AppPhase>('idle');
   const [error, setError] = useState<string | null>(null);
-  const { isReady: isConsultationReady, language, setLanguage, sessionId } = useConsultation();
-  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const [isMicEnabled, setIsMicEnabled] = useState(false);
+  const { isReady: isConsultationReady, language, sessionId } = useConsultation();
+  const { isRecording, startRecording, stopRecording } = useAudioCapture();
   const { speak, stop: stopSpeaking, isSpeaking, isGenerating } = useTextToSpeech();
   const { hasSeenDisclaimer, isLoading, acknowledgeDisclaimer } = useDisclaimer();
+  const hasPlayedOpeningRef = useRef(false);
 
-  // Derive effective phase
   const effectivePhase: AppPhase = isSpeaking ? 'speaking' : isGenerating ? 'processing' : phase;
 
-  const handlePressIn = useCallback(async () => {
-    if (isSpeaking || isGenerating) stopSpeaking();
+  useEffect(() => {
+    if (isLoading || !isConsultationReady || !hasSeenDisclaimer || hasPlayedOpeningRef.current) {
+      return;
+    }
+
+    hasPlayedOpeningRef.current = true;
+    const openingMessage = createMessage('assistant', Strings.openingGreeting);
+    setMessages([openingMessage]);
+    setIsMicEnabled(false);
+
+    let cancelled = false;
+
+    async function playOpening() {
+      try {
+        await speak(Strings.openingGreeting);
+      } catch (err) {
+        console.error('Opening greeting failed:', err);
+      } finally {
+        if (!cancelled) {
+          setPhase('idle');
+          setIsMicEnabled(true);
+        }
+      }
+    }
+
+    playOpening();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hasSeenDisclaimer, isConsultationReady, isLoading, speak]);
+
+  const handleTalkPress = useCallback(async () => {
+    if (!isMicEnabled) {
+      return;
+    }
+
     setError(null);
 
-    try {
-      const status = await AudioModule.requestRecordingPermissionsAsync();
-      if (!status.granted) {
-        setError(Strings.micPermissionDenied);
-        return;
+    if (isRecording) {
+      setPhase('processing');
+
+      try {
+        const audio = await stopRecording();
+        const transcript = (await transcribeAudio(audio, language)).trim();
+
+        if (!transcript) {
+          setError(Strings.emptyTranscript);
+          setPhase('idle');
+          return;
+        }
+
+        const userMsg = createMessage('user', transcript);
+        const nextMessages = [...messages, userMsg];
+        setMessages(nextMessages);
+
+        const chatData = await sendChatMessage(nextMessages, language, sessionId);
+        if (chatData.error || !chatData.content) {
+          setError(chatData.error || Strings.networkError);
+          setPhase('idle');
+          return;
+        }
+
+        const assistantMsg = createMessage('assistant', chatData.content);
+        assistantMsg.action = chatData.action;
+        assistantMsg.is_emergency = chatData.is_emergency;
+        setMessages((prev) => [...prev, assistantMsg]);
+
+        setPhase('idle');
+        await speak(chatData.content);
+      } catch (err) {
+        console.error('Voice chat error:', err);
+        setError(err instanceof Error ? err.message : Strings.networkError);
+        setPhase('idle');
       }
-      await AudioModule.setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
-      await recorder.prepareToRecordAsync();
-      recorder.record();
+
+      return;
+    }
+
+    if (isSpeaking || isGenerating) {
+      stopSpeaking();
+    }
+
+    try {
+      await startRecording();
       setPhase('listening');
     } catch (err) {
-      setError(`Record start failed: ${err}`);
-      console.error('Recording error:', err);
-    }
-  }, [isGenerating, isSpeaking, recorder, stopSpeaking]);
-
-  const handlePressOut = useCallback(async () => {
-    setPhase('processing');
-
-    try {
-      await recorder.stop();
-      await AudioModule.setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
-      const uri = recorder.uri;
-
-      if (!uri) {
-        setError('No audio recorded');
-        setPhase('idle');
-        return;
-      }
-
-      // Step 1: ASR — transcribe speech
-      const formData = new FormData();
-      formData.append('file', {
-        uri,
-        type: Platform.OS === 'ios' ? 'audio/m4a' : 'audio/mp4',
-        name: 'recording.m4a',
-      } as any);
-      formData.append('language', language === 'twi' ? 'akan' : 'en');
-      formData.append('isImpaired', 'false');
-
-      const asrResponse = await fetch(ASR_ENDPOINT, { method: 'POST', body: formData });
-      const asrText = await asrResponse.text();
-
-      if (!asrResponse.ok) {
-        setError(`ASR error: ${asrText}`);
-        setPhase('idle');
-        return;
-      }
-
-      const asrData = JSON.parse(asrText);
-      const transcript = asrData.text || asrData.transcription || '';
-
-      if (!transcript) {
-        setError(Strings.emptyTranscript);
-        setPhase('idle');
-        return;
-      }
-
-      // Add user message
-      const userMsg = createMessage('user', transcript);
-      setMessages(prev => [...prev, userMsg]);
-
-      // Step 2: Send to LLM (Gemini handles Twi/English natively)
-      const chatRes = await fetch(`${getApiUrl()}/api/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: [{ role: 'user', content: transcript }],
-          language,
-          sessionId,
-        }),
-      });
-      const chatData = await chatRes.json();
-
-      if (!chatRes.ok) {
-        setError(Strings.networkError);
-        setPhase('idle');
-        return;
-      }
-
-      const finalResponse = chatData.content;
-
-      // Add assistant message
-      const assistantMsg = createMessage('assistant', finalResponse);
-      assistantMsg.action = chatData.action;
-      assistantMsg.is_emergency = chatData.is_emergency;
-      setMessages(prev => [...prev, assistantMsg]);
-
-      // Step 5: Speak the response
-      setPhase('idle');
-      try {
-        await speak(finalResponse);
-      } catch (e) {
-        console.error('TTS error:', e);
-      }
-    } catch (err) {
-      setError(Strings.networkError);
-      console.error('Error:', err);
+      console.error('Recording start failed:', err);
+      setError(err instanceof Error ? err.message : Strings.micPermissionDenied);
       setPhase('idle');
     }
-  }, [language, recorder, sessionId, speak]);
+  }, [
+    isGenerating,
+    isMicEnabled,
+    isRecording,
+    isSpeaking,
+    language,
+    messages,
+    sessionId,
+    speak,
+    startRecording,
+    stopRecording,
+    stopSpeaking,
+  ]);
 
   if (isLoading || !isConsultationReady) return null;
 
@@ -159,58 +159,46 @@ export default function VoiceChatScreen() {
       style={styles.gradient}
     >
       <SafeAreaView style={styles.container} edges={['top']}>
-        {/* Header */}
-        <AppHeader />
-
-        {/* Emergency — subtle top-right */}
-        <View style={styles.scannerWrapper}>
-          <Pressable
-            style={({ pressed }) => [
-              styles.scannerButton,
-              pressed && styles.scannerButtonPressed,
-            ]}
-            onPress={() => router.push('/scanner')}
-            accessibilityRole="button"
-            accessibilityLabel="Open medicine scanner"
-          >
-            <Text style={styles.scannerButtonText}>{Strings.scannerCta}</Text>
-          </Pressable>
+        <View style={styles.topSection}>
+          <View style={styles.actionRow}>
+            <Pressable
+              style={({ pressed }) => [styles.iconButton, pressed && styles.iconButtonPressed]}
+              onPress={() => router.push('/scanner')}
+              accessibilityRole="button"
+              accessibilityLabel="Open medicine scanner"
+            >
+              <MaterialIcons name="photo-camera" size={22} color={Colors.primary} />
+            </Pressable>
+            <EmergencyButton size={48} />
+          </View>
+          <AppHeader compact />
         </View>
 
-        <View style={styles.emergencyWrapper}>
-          <EmergencyButton />
-        </View>
-
-        {/* Conversation card */}
         <View style={styles.conversationArea}>
           <ConversationView messages={messages} />
         </View>
 
-        {/* Error toast */}
-        {error && (
+        {error ? (
           <View style={styles.errorToast}>
             <Text style={styles.errorText} numberOfLines={2}>{error}</Text>
           </View>
-        )}
+        ) : null}
 
-        {/* Orb */}
         <GlowingOrb phase={effectivePhase} />
 
-        {/* Controls */}
         <View style={styles.controls}>
           <StatusIndicator phase={effectivePhase} />
-          <LanguageSelector
+          {/* <LanguageSelector
             selectedLanguage={language}
             onSelectLanguage={setLanguage}
-          />
+          /> */}
           <TalkButton
             phase={effectivePhase}
-            onPressIn={handlePressIn}
-            onPressOut={handlePressOut}
+            onPress={handleTalkPress}
+            disabled={!isMicEnabled}
           />
         </View>
 
-        {/* Disclaimer */}
         <DisclaimerModal
           visible={!hasSeenDisclaimer}
           onAccept={acknowledgeDisclaimer}
@@ -227,39 +215,32 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  emergencyWrapper: {
-    position: 'absolute',
-    top: 56,
-    right: 16,
-    zIndex: 10,
+  topSection: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
   },
-  scannerWrapper: {
-    position: 'absolute',
-    top: 56,
-    left: 16,
-    zIndex: 10,
+  actionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
-  scannerButton: {
+  iconButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: Colors.frostedCard,
-    borderRadius: 18,
     borderWidth: 1,
     borderColor: Colors.frostedCardBorder,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
     shadowColor: Colors.primary,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.08,
     shadowRadius: 12,
     elevation: 3,
   },
-  scannerButtonPressed: {
-    opacity: 0.85,
-  },
-  scannerButtonText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: Colors.primary,
-    letterSpacing: 0.4,
+  iconButtonPressed: {
+    opacity: 0.84,
   },
   conversationArea: {
     flex: 1,
@@ -273,7 +254,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   errorText: {
-    fontSize: 13,
+    ...Typography.caption,
     color: '#991B1B',
     textAlign: 'center',
   },

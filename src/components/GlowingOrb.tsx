@@ -38,7 +38,7 @@ function SoundWave({ delay, active }: { delay: number; active: boolean }) {
       scale.setValue(1);
       opacity.setValue(0);
     }
-  }, [active]);
+  }, [active, delay, opacity, scale]);
 
   return (
     <Animated.View
@@ -65,7 +65,7 @@ export function GlowingOrb({ phase }: GlowingOrbProps) {
     );
     animation.start();
     return () => animation.stop();
-  }, [phase]);
+  }, [phase, scaleAnim]);
 
   const isSpeaking = phase === 'speaking';
 

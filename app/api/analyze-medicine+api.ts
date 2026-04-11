@@ -10,11 +10,11 @@ function sanitizeMimeType(value?: string): string {
   return value.startsWith('image/') ? value : 'image/jpeg';
 }
 
-function buildScanSummary(contextNote?: string): string {
-  const note = contextNote?.trim();
+function buildScanSummary(spokenContext?: string): string {
+  const note = spokenContext?.trim();
 
   if (note) {
-    return `Medicine scan request. The user wants maternal health guidance about a medicine photo. Extra note: ${note}`;
+    return `Medicine scan request. The user wants maternal health guidance about a medicine photo. Spoken context: ${note}`;
   }
 
   return 'Medicine scan request. The user wants maternal health guidance about a medicine photo.';
@@ -26,7 +26,7 @@ export async function POST(request: Request): Promise<Response> {
     const {
       imageBase64,
       mimeType,
-      contextNote = '',
+      spokenContext = '',
       language = 'twi',
       sessionId = 'default',
     } = body;
@@ -38,7 +38,7 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    const userText = buildScanSummary(contextNote);
+    const userText = buildScanSummary(spokenContext);
     const session = await recordUserTurn(ai, sessionId, userText);
     const systemPrompt = buildMedicinePromptWithSummary(session.clinical_summary, language);
 

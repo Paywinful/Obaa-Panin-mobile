@@ -17,21 +17,31 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    const lastMessage = messages[messages.length - 1];
+    const normalizedMessages = messages
+      .filter((message) => message && typeof message.content === 'string')
+      .map((message) => ({
+        role: message.role === 'assistant' || message.role === 'model' ? 'model' : 'user',
+        content: message.content.trim(),
+      }))
+      .filter((message) => message.content.length > 0);
+
+    if (normalizedMessages.length === 0) {
+      return new Response(
+        JSON.stringify({ error: 'At least one non-empty message is required' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+
+    const lastMessage = normalizedMessages[normalizedMessages.length - 1];
     const userText = lastMessage.content;
 
     const session = await recordUserTurn(ai, sessionId, userText);
-
-    // Build system prompt
     const systemPrompt = buildPromptWithSummary(session.clinical_summary, language);
-
-    // Build Gemini contents from session messages
-    const contents = session.messages.map((m) => ({
-      role: m.role === 'model' ? 'model' : 'user',
-      parts: [{ text: m.content }],
+    const contents = normalizedMessages.map((message) => ({
+      role: message.role,
+      parts: [{ text: message.content }],
     }));
 
-    // Call Gemini
     const result = await ai.models.generateContent({
       model: MODEL,
       config: { systemInstruction: systemPrompt },

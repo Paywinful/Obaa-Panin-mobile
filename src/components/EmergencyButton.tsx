@@ -1,9 +1,15 @@
 import React from 'react';
-import { Pressable, Text, StyleSheet } from 'react-native';
+import { Pressable, StyleSheet } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import { Feather } from '@expo/vector-icons';
+import { Colors } from '../constants/colors';
 import { triggerEmergencyCall } from '../services/emergency';
 
-export function EmergencyButton() {
+interface EmergencyButtonProps {
+  size?: number;
+}
+
+export function EmergencyButton({ size = 44 }: EmergencyButtonProps) {
   const handlePress = () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     triggerEmergencyCall();
@@ -13,30 +19,27 @@ export function EmergencyButton() {
     <Pressable
       style={({ pressed }) => [
         styles.button,
+        { width: size, height: size, borderRadius: size / 2 },
         pressed && styles.buttonPressed,
       ]}
       onPress={handlePress}
       accessibilityLabel="Emergency call"
       accessibilityRole="button"
     >
-      <Text style={styles.icon}>📞</Text>
+      <Feather name="phone-call" size={size * 0.42} color={Colors.emergencyDark} />
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   button: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
     backgroundColor: 'rgba(220,38,38,0.15)',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(220,38,38,0.18)',
   },
   buttonPressed: {
     backgroundColor: 'rgba(220,38,38,0.3)',
-  },
-  icon: {
-    fontSize: 16,
   },
 });

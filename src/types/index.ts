@@ -28,7 +28,7 @@ export interface ChatResponse {
 export interface MedicineAnalysisRequest {
   imageBase64: string;
   mimeType: string;
-  contextNote?: string;
+  spokenContext?: string;
   language?: LanguageCode;
   sessionId?: string;
 }

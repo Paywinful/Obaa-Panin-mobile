@@ -9,6 +9,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { Colors } from '../constants/colors';
 import { Strings } from '../constants/strings';
+import { Typography } from '../constants/typography';
 import { AppPhase } from '../types';
 
 interface StatusIndicatorProps {
@@ -91,11 +92,11 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   status: {
-    fontSize: 13,
+    ...Typography.body,
     fontWeight: '600',
   },
   transcript: {
-    fontSize: 13,
+    ...Typography.caption,
     color: Colors.textSecondary,
     textAlign: 'center',
     paddingHorizontal: 32,

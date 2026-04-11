@@ -8,19 +8,21 @@ import Animated, {
   withSequence,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
+import { MaterialIcons } from '@expo/vector-icons';
 import { Colors } from '../constants/colors';
 import { Strings } from '../constants/strings';
+import { Typography } from '../constants/typography';
 import { AppPhase } from '../types';
 
 interface TalkButtonProps {
   phase: AppPhase;
-  onPressIn: () => void;
-  onPressOut: () => void;
+  onPress: () => void;
+  disabled?: boolean;
 }
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
-export function TalkButton({ phase, onPressIn, onPressOut }: TalkButtonProps) {
+export function TalkButton({ phase, onPress, disabled = false }: TalkButtonProps) {
   const scale = useSharedValue(1);
   const pulseScale = useSharedValue(1);
 
@@ -43,62 +45,61 @@ export function TalkButton({ phase, onPressIn, onPressOut }: TalkButtonProps) {
     transform: [{ scale: scale.value * pulseScale.value }],
   }));
 
-  const isDisabled = phase === 'processing' || phase === 'speaking';
-
+  const isDisabled = disabled || phase === 'processing' || phase === 'speaking';
   const backgroundColor =
     phase === 'listening'
-      ? Colors.listening
+      ? Colors.emergency
       : phase === 'processing'
         ? Colors.processing
         : isDisabled
           ? Colors.primaryLight
           : Colors.primary;
 
-  const handlePressIn = () => {
+  const handlePress = () => {
     if (isDisabled) return;
-    scale.value = withTiming(0.92, { duration: 100 });
+    scale.value = withSequence(withTiming(0.92, { duration: 100 }), withTiming(1, { duration: 100 }));
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    onPressIn();
-  };
-
-  const handlePressOut = () => {
-    if (isDisabled) return;
-    scale.value = withTiming(1, { duration: 100 });
-    onPressOut();
+    onPress();
   };
 
   return (
     <View style={styles.wrapper}>
       <View style={styles.container}>
-        {phase === 'listening' && <View style={[styles.pulseRing, { borderColor: Colors.listening }]} />}
+        {phase === 'listening' && <View style={[styles.pulseRing, { borderColor: Colors.emergency }]} />}
         <AnimatedPressable
           style={[styles.button, { backgroundColor }, animatedStyle]}
-          onPressIn={handlePressIn}
-          onPressOut={handlePressOut}
+          onPress={handlePress}
           disabled={isDisabled}
-          accessibilityLabel="Tap to speak"
+          accessibilityLabel={phase === 'listening' ? 'Stop recording' : 'Start recording'}
           accessibilityRole="button"
         >
           <MicIcon phase={phase} />
         </AnimatedPressable>
       </View>
-      <Text style={styles.hint}>{Strings.tapToSpeak}</Text>
+      <Text style={styles.hint}>{phase === 'listening' ? Strings.tapToStop : Strings.tapToSpeak}</Text>
     </View>
   );
 }
 
 function MicIcon({ phase }: { phase: AppPhase }) {
   const color = Colors.textLight;
+
   if (phase === 'processing') {
-    return (
-      <Animated.Text style={[styles.icon, { color }]}>{'⏳'}</Animated.Text>
-    );
+    return <MaterialIcons name="hourglass-top" size={28} color={color} />;
   }
+
   if (phase === 'speaking') {
+    return <MaterialIcons name="volume-up" size={30} color={color} />;
+  }
+
+  if (phase === 'listening') {
     return (
-      <Animated.Text style={[styles.icon, { color }]}>{'🔊'}</Animated.Text>
+      <View style={styles.stopIcon}>
+        <View style={styles.stopSquare} />
+      </View>
     );
   }
+
   return (
     <View style={styles.micContainer}>
       <View style={[styles.micBody, { backgroundColor: color }]} />
@@ -138,9 +139,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
   },
-  icon: {
-    fontSize: 26,
-  },
   micContainer: {
     alignItems: 'center',
   },
@@ -163,9 +161,22 @@ const styles = StyleSheet.create({
     height: 5,
     marginTop: 1,
   },
+  stopIcon: {
+    width: 26,
+    height: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stopSquare: {
+    width: 16,
+    height: 16,
+    borderRadius: 3,
+    backgroundColor: Colors.textLight,
+  },
   hint: {
-    fontSize: 12,
+    ...Typography.caption,
     color: Colors.textSecondary,
     marginBottom: 8,
+    textAlign: 'center',
   },
 });
