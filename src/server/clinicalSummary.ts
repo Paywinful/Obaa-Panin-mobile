@@ -51,6 +51,8 @@ export function buildClinicalSummary(profile: UserProfile): string {
     'CLINICAL SUMMARY:',
     `- pregnancy_status: ${profile.pregnancy_status || 'unknown'}`,
     `- gestational_age: ${profile.gestational_age || 'unknown'}`,
+    `- pregnancy_selected_month: ${profile.pregnancy_selected_month ?? 'unknown'}`,
+    `- pregnancy_answered_at: ${profile.pregnancy_answered_at ?? 'unknown'}`,
     `- postpartum_status: ${profile.postpartum_status || 'unknown'}`,
     `- breastfeeding_status: ${profile.breastfeeding_status || 'unknown'}`,
     `- main_concern: ${profile.main_concern || 'unknown'}`,

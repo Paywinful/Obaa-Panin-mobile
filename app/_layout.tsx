@@ -7,7 +7,9 @@ export default function RootLayout() {
   return (
     <ConsultationProvider>
       <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="intake" />
         <Stack.Screen name="index" />
+        <Stack.Screen name="pregnancy-profile" />
         <Stack.Screen name="scanner" />
       </Stack>
       <StatusBar style="dark" />

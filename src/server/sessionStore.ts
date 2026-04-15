@@ -1,6 +1,8 @@
 export interface UserProfile {
   pregnancy_status: string;
   gestational_age: string | null;
+  pregnancy_selected_month: number | null;
+  pregnancy_answered_at: number | null;
   postpartum_status: string;
   postpartum_duration: string | null;
   breastfeeding_status: string;
@@ -29,6 +31,8 @@ function createDefaultProfile(): UserProfile {
   return {
     pregnancy_status: 'unknown',
     gestational_age: null,
+    pregnancy_selected_month: null,
+    pregnancy_answered_at: null,
     postpartum_status: 'unknown',
     postpartum_duration: null,
     breastfeeding_status: 'unknown',

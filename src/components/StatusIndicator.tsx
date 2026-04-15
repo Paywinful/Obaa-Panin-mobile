@@ -15,9 +15,10 @@ import { AppPhase } from '../types';
 interface StatusIndicatorProps {
   phase: AppPhase;
   transcript?: string;
+  labelOverride?: string;
 }
 
-export function StatusIndicator({ phase, transcript }: StatusIndicatorProps) {
+export function StatusIndicator({ phase, transcript, labelOverride }: StatusIndicatorProps) {
   const opacity = useSharedValue(1);
 
   React.useEffect(() => {
@@ -39,8 +40,9 @@ export function StatusIndicator({ phase, transcript }: StatusIndicatorProps) {
     opacity: opacity.value,
   }));
 
-  const statusText =
-    phase === 'listening'
+  const statusText = labelOverride
+    ? labelOverride
+    : phase === 'listening'
       ? Strings.listening
       : phase === 'processing'
         ? Strings.thinking

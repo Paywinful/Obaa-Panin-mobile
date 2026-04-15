@@ -38,7 +38,13 @@ export default function VoiceChatScreen() {
   const [phase, setPhase] = useState<AppPhase>('idle');
   const [error, setError] = useState<string | null>(null);
   const [isMicEnabled, setIsMicEnabled] = useState(false);
-  const { isReady: isConsultationReady, language, sessionId } = useConsultation();
+  const {
+    isReady: isConsultationReady,
+    language,
+    sessionId,
+    intakeComplete,
+    refreshSession,
+  } = useConsultation();
   const { isRecording, startRecording, stopRecording } = useAudioCapture();
   const { speak, stop: stopSpeaking, isSpeaking, isGenerating } = useTextToSpeech();
   const { hasSeenDisclaimer, isLoading, acknowledgeDisclaimer } = useDisclaimer();
@@ -46,20 +52,46 @@ export default function VoiceChatScreen() {
 
   const effectivePhase: AppPhase = isSpeaking ? 'speaking' : isGenerating ? 'processing' : phase;
 
-  useEffect(() => {
-    if (isLoading || !isConsultationReady || !hasSeenDisclaimer || hasPlayedOpeningRef.current) {
-      return;
-    }
-
-    hasPlayedOpeningRef.current = true;
+  const playOpening = useCallback(async () => {
     const openingMessage = createMessage('assistant', Strings.openingGreeting);
     setMessages([openingMessage]);
     setIsMicEnabled(false);
 
+    try {
+      await speak(Strings.openingGreeting);
+    } catch (err) {
+      console.error('Opening greeting failed:', err);
+    } finally {
+      setPhase('idle');
+      setIsMicEnabled(true);
+    }
+  }, [speak]);
+
+  useEffect(() => {
+    if (!isLoading && isConsultationReady && hasSeenDisclaimer && !intakeComplete) {
+      router.replace('/intake');
+    }
+  }, [hasSeenDisclaimer, intakeComplete, isConsultationReady, isLoading, router]);
+
+  useEffect(() => {
+    if (
+      isLoading ||
+      !isConsultationReady ||
+      !hasSeenDisclaimer ||
+      !intakeComplete ||
+      hasPlayedOpeningRef.current
+    ) {
+      return;
+    }
+
+    hasPlayedOpeningRef.current = true;
     let cancelled = false;
 
-    async function playOpening() {
+    async function startOpening() {
       try {
+        const openingMessage = createMessage('assistant', Strings.openingGreeting);
+        setMessages([openingMessage]);
+        setIsMicEnabled(false);
         await speak(Strings.openingGreeting);
       } catch (err) {
         console.error('Opening greeting failed:', err);
@@ -71,12 +103,25 @@ export default function VoiceChatScreen() {
       }
     }
 
-    playOpening();
+    startOpening();
 
     return () => {
       cancelled = true;
     };
-  }, [hasSeenDisclaimer, isConsultationReady, isLoading, speak]);
+  }, [hasSeenDisclaimer, intakeComplete, isConsultationReady, isLoading, speak]);
+
+  const handleReplayMessage = useCallback(async (text: string) => {
+    stopSpeaking();
+    await speak(text);
+  }, [speak, stopSpeaking]);
+
+  const handleClearConversation = useCallback(async () => {
+    stopSpeaking();
+    setError(null);
+    setMessages([]);
+    await refreshSession();
+    await playOpening();
+  }, [playOpening, refreshSession, stopSpeaking]);
 
   const handleTalkPress = useCallback(async () => {
     if (!isMicEnabled) {
@@ -151,7 +196,9 @@ export default function VoiceChatScreen() {
     stopSpeaking,
   ]);
 
-  if (isLoading || !isConsultationReady) return null;
+  if (isLoading || !isConsultationReady || !intakeComplete) {
+    return null;
+  }
 
   return (
     <LinearGradient
@@ -161,21 +208,35 @@ export default function VoiceChatScreen() {
       <SafeAreaView style={styles.container} edges={['top']}>
         <View style={styles.topSection}>
           <View style={styles.actionRow}>
-            <Pressable
-              style={({ pressed }) => [styles.iconButton, pressed && styles.iconButtonPressed]}
-              onPress={() => router.push('/scanner')}
-              accessibilityRole="button"
-              accessibilityLabel="Open medicine scanner"
-            >
-              <MaterialIcons name="photo-camera" size={22} color={Colors.primary} />
-            </Pressable>
+            <View style={styles.leftActions}>
+              <Pressable
+                style={({ pressed }) => [styles.iconButton, pressed && styles.iconButtonPressed]}
+                onPress={() => router.push('/scanner')}
+                accessibilityRole="button"
+                accessibilityLabel="Open medicine scanner"
+              >
+                <MaterialIcons name="photo-camera" size={22} color={Colors.primary} />
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [styles.iconButton, pressed && styles.iconButtonPressed]}
+                onPress={() => router.push('/pregnancy-profile')}
+                accessibilityRole="button"
+                accessibilityLabel="Open pregnancy answers"
+              >
+                <MaterialIcons name="edit-note" size={22} color={Colors.primary} />
+              </Pressable>
+            </View>
             <EmergencyButton size={48} />
           </View>
           <AppHeader compact />
         </View>
 
         <View style={styles.conversationArea}>
-          <ConversationView messages={messages} />
+          <ConversationView
+            messages={messages}
+            onReplayMessage={handleReplayMessage}
+            onClearConversation={handleClearConversation}
+          />
         </View>
 
         {error ? (
@@ -188,10 +249,6 @@ export default function VoiceChatScreen() {
 
         <View style={styles.controls}>
           <StatusIndicator phase={effectivePhase} />
-          {/* <LanguageSelector
-            selectedLanguage={language}
-            onSelectLanguage={setLanguage}
-          /> */}
           <TalkButton
             phase={effectivePhase}
             onPress={handleTalkPress}
@@ -199,10 +256,7 @@ export default function VoiceChatScreen() {
           />
         </View>
 
-        <DisclaimerModal
-          visible={!hasSeenDisclaimer}
-          onAccept={acknowledgeDisclaimer}
-        />
+        <DisclaimerModal visible={!hasSeenDisclaimer} onAccept={acknowledgeDisclaimer} />
       </SafeAreaView>
     </LinearGradient>
   );
@@ -222,6 +276,11 @@ const styles = StyleSheet.create({
   actionRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  leftActions: {
+    flexDirection: 'row',
+    gap: 10,
     alignItems: 'center',
   },
   iconButton: {

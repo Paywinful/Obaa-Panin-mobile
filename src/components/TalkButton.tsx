@@ -18,11 +18,12 @@ interface TalkButtonProps {
   phase: AppPhase;
   onPress: () => void;
   disabled?: boolean;
+  hintOverride?: string;
 }
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
-export function TalkButton({ phase, onPress, disabled = false }: TalkButtonProps) {
+export function TalkButton({ phase, onPress, disabled = false, hintOverride }: TalkButtonProps) {
   const scale = useSharedValue(1);
   const pulseScale = useSharedValue(1);
 
@@ -76,7 +77,9 @@ export function TalkButton({ phase, onPress, disabled = false }: TalkButtonProps
           <MicIcon phase={phase} />
         </AnimatedPressable>
       </View>
-      <Text style={styles.hint}>{phase === 'listening' ? Strings.tapToStop : Strings.tapToSpeak}</Text>
+      <Text style={styles.hint}>
+        {hintOverride || (phase === 'listening' ? Strings.tapToStop : Strings.tapToSpeak)}
+      </Text>
     </View>
   );
 }

@@ -12,6 +12,12 @@ export type LanguageCode = 'twi' | 'en';
 export type ClinicalAction = 'probe' | 'routine' | 'urgent' | 'emergency';
 export type MedicineConfidence = 'low' | 'medium' | 'high';
 
+export interface PregnancyProfile {
+  isPregnant: boolean;
+  selectedMonth: number | null;
+  answeredAt: number;
+}
+
 export interface ChatRequest {
   messages: Message[];
   language?: LanguageCode;

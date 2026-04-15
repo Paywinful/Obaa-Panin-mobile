@@ -1,5 +1,6 @@
 import React, { useRef, useEffect } from 'react';
-import { FlatList, View, Text, StyleSheet } from 'react-native';
+import { FlatList, View, Text, StyleSheet, Pressable } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import { ChatBubble } from './ChatBubble';
 import { Colors } from '../constants/colors';
 import { Strings } from '../constants/strings';
@@ -8,9 +9,11 @@ import { Message } from '../types';
 
 interface ConversationViewProps {
   messages: Message[];
+  onReplayMessage?: (text: string) => void;
+  onClearConversation?: () => void;
 }
 
-export function ConversationView({ messages }: ConversationViewProps) {
+export function ConversationView({ messages, onReplayMessage, onClearConversation }: ConversationViewProps) {
   const flatListRef = useRef<FlatList<Message>>(null);
 
   useEffect(() => {
@@ -24,7 +27,9 @@ export function ConversationView({ messages }: ConversationViewProps) {
   if (messages.length === 0) {
     return (
       <View style={styles.card}>
-        <Text style={styles.cardHeader}>{Strings.conversationHeader}</Text>
+        <View style={styles.headerRow}>
+          <Text style={styles.cardHeader}>{Strings.conversationHeader}</Text>
+        </View>
         <Text style={styles.cardSubheader}>{Strings.conversationSubheader}</Text>
         <View style={styles.emptyContent}>
           <View style={styles.chatIconContainer}>
@@ -39,13 +44,26 @@ export function ConversationView({ messages }: ConversationViewProps) {
 
   return (
     <View style={styles.card}>
-      <Text style={styles.cardHeader}>{Strings.conversationHeader}</Text>
+      <View style={styles.headerRow}>
+        <Text style={styles.cardHeader}>{Strings.conversationHeader}</Text>
+        {onClearConversation ? (
+          <Pressable
+            style={({ pressed }) => [styles.clearButton, pressed ? styles.clearButtonPressed : null]}
+            onPress={onClearConversation}
+            accessibilityRole="button"
+            accessibilityLabel="Clear conversation"
+          >
+            <MaterialIcons name="delete-outline" size={16} color={Colors.primary} />
+            <Text style={styles.clearText}>Clear</Text>
+          </Pressable>
+        ) : null}
+      </View>
       <Text style={styles.cardSubheader}>{Strings.conversationSubheader}</Text>
       <FlatList
         ref={flatListRef}
         data={messages}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <ChatBubble message={item} />}
+        renderItem={({ item }) => <ChatBubble message={item} onReplay={onReplayMessage} />}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
         style={styles.list}
@@ -74,6 +92,11 @@ const styles = StyleSheet.create({
     ...Typography.title,
     fontSize: 16,
     color: Colors.primary,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   cardSubheader: {
     ...Typography.caption,
@@ -118,5 +141,24 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingVertical: 4,
+  },
+  clearButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: Colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: Colors.frostedCardBorder,
+  },
+  clearButtonPressed: {
+    opacity: 0.82,
+  },
+  clearText: {
+    ...Typography.caption,
+    color: Colors.primary,
+    fontWeight: '700',
   },
 });

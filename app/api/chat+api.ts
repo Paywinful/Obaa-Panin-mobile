@@ -1,9 +1,9 @@
 import { GoogleGenAI } from '@google/genai';
 import { extractClinicalResponse, persistAssistantTurn, recordUserTurn } from '../../src/server/clinicalSession';
-import { buildPromptWithSummary } from '../../src/utils/systemPrompt';
+// import { buildPromptWithSummary } from '../../src/utils/systemPrompt';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-const MODEL = 'gemini-2.5-flash';
+const MODEL = 'gemini-3.1-flash-lite-preview';
 
 export async function POST(request: Request): Promise<Response> {
   try {
@@ -34,17 +34,28 @@ export async function POST(request: Request): Promise<Response> {
 
     const lastMessage = normalizedMessages[normalizedMessages.length - 1];
     const userText = lastMessage.content;
-
     const session = await recordUserTurn(ai, sessionId, userText);
-    const systemPrompt = buildPromptWithSummary(session.clinical_summary, language);
-    const contents = normalizedMessages.map((message) => ({
-      role: message.role,
-      parts: [{ text: message.content }],
-    }));
+    const pregnancyContext =
+      session.profile.pregnancy_status === 'pregnant'
+        ? `Pregnancy context: user is pregnant. ${session.profile.gestational_age || ''}`
+        : session.profile.pregnancy_status === 'not_pregnant'
+          ? 'Pregnancy context: user said she is not pregnant.'
+          : '';
+    // const systemPrompt = buildPromptWithSummary(session.clinical_summary, language);
+    const contents = [
+      {
+        role: 'user',
+        parts: [{
+          text:
+            `${pregnancyContext ? `${pregnancyContext}\n\n` : ''}${userText}\n\n` +
+            `Respond in Asante Twi only.`,
+        }],
+      },
+    ];
 
     const result = await ai.models.generateContent({
       model: MODEL,
-      config: { systemInstruction: systemPrompt },
+      // config: { systemInstruction: systemPrompt },
       contents,
     });
 

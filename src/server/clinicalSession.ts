@@ -2,7 +2,8 @@ import { GoogleGenAI } from '@google/genai';
 import { buildClinicalSummary, refineSummaryWithLLM, shouldRefineSummary } from './clinicalSummary';
 import { inferLightProfile } from './profileInference';
 import { getSession, Session, updateSession } from './sessionStore';
-import { ClinicalAction, MedicineConfidence } from '../types';
+import { ClinicalAction, MedicineConfidence, PregnancyProfile } from '../types';
+import { describePregnancyAge, formatAnsweredDate } from '../utils/pregnancyProfile';
 
 const DEFAULT_REPLY = 'Mepa wo kyɛw, san ka nea ɛrekɛ so no bio ma mente ase yiye.';
 
@@ -126,6 +127,24 @@ export function persistAssistantTurn(
   trimSessionMessages(session);
   session.clinical_summary = buildClinicalSummary(session.profile);
 
+  updateSession(sessionId, session);
+  return session;
+}
+
+export function applyPregnancyProfile(
+  sessionId: string,
+  pregnancyProfile: PregnancyProfile,
+): Session {
+  const session = getSession(sessionId);
+
+  session.profile.pregnancy_status = pregnancyProfile.isPregnant ? 'pregnant' : 'not_pregnant';
+  session.profile.pregnancy_selected_month = pregnancyProfile.selectedMonth;
+  session.profile.pregnancy_answered_at = pregnancyProfile.answeredAt;
+  session.profile.gestational_age = pregnancyProfile.isPregnant
+    ? `Bosome ${pregnancyProfile.selectedMonth}; answered on ${formatAnsweredDate(pregnancyProfile.answeredAt)}; estimated current age ${describePregnancyAge(pregnancyProfile)}`
+    : 'not pregnant';
+
+  session.clinical_summary = buildClinicalSummary(session.profile);
   updateSession(sessionId, session);
   return session;
 }
