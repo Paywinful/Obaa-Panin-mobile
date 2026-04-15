@@ -48,7 +48,7 @@ export async function POST(request: Request): Promise<Response> {
         parts: [{
           text:
             `${pregnancyContext ? `${pregnancyContext}\n\n` : ''}${userText}\n\n` +
-            `Respond in Asante Twi only.`,
+            `Respond in Asante Twi only. `,
         }],
       },
     ];
