@@ -182,8 +182,8 @@ function formatCaseState(caseState: ActiveCaseState): string {
     `- Latest user turn kind: ${caseState.latestUserTurnKind ?? 'unknown'}`,
     `- Latest user raw turn: ${caseState.latestUserTurnRaw ?? 'unknown'}`,
     caseState.probeTurnsUsed >= 1
-      ? '- Guidance preference: enough context may already be available; prefer advice unless a critical safety detail is still missing.'
-      : '- Guidance preference: one short clarifying question is acceptable only if it changes management.',
+      ? '- MANDATORY: You have already asked a clarifying question. You MUST give practical advice now. Do NOT ask another question. Use action "routine" or higher.'
+      : '- Guidance: one short clarifying question is acceptable only if it would change your advice.',
     caseState.pendingPreviousProblemCheck && !caseState.previousProblemFollowUpAsked
       ? '- Instruction: ask one short question about how the patient is feeling now regarding the previous problem before addressing the queued new concern.'
       : '- Instruction: no previous-problem follow-up is currently required.',

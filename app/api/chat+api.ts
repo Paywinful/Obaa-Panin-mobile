@@ -29,13 +29,9 @@ function isValidPregnancyProfile(value: unknown): value is PregnancyProfile {
   );
 }
 
-function buildTurnInstruction(userText: string, probeTurnsUsed: number, knownDangerSigns: string[]): string {
-  if (probeTurnsUsed >= 3) {
-    return `${userText}\n\nIMPORTANT: Probe limit reached. Give guidance now. Do not ask another question.`;
-  }
-
-  if (probeTurnsUsed >= 1 && knownDangerSigns.length === 0) {
-    return `${userText}\n\nIMPORTANT: You already asked at least one useful question. If safe, give practical advice now instead of asking another question. Only ask again if one critical missing fact would change management.`;
+function buildTurnInstruction(userText: string, effectiveProbes: number, knownDangerSigns: string[]): string {
+  if (effectiveProbes >= 1 && knownDangerSigns.length === 0) {
+    return `${userText}\n\nMANDATORY: You have already asked a clarifying question. You MUST give practical advice now. Do NOT ask another question. Set action to "routine".`;
   }
 
   return userText;
@@ -43,7 +39,7 @@ function buildTurnInstruction(userText: string, probeTurnsUsed: number, knownDan
 
 function buildUserTurnText(
   userText: string,
-  probeTurnsUsed: number,
+  effectiveProbes: number,
   knownDangerSigns: string[],
   pendingPreviousProblemCheck: boolean | undefined,
   previousProblemFollowUpAsked: boolean | undefined,
@@ -58,7 +54,7 @@ function buildUserTurnText(
     return `${userText}\n\nIMPORTANT: The user previously raised this new concern: ${queuedConcernToAddress}. The follow-up on the previous problem has been done. Address the queued concern now with practical guidance.`;
   }
 
-  return buildTurnInstruction(userText, probeTurnsUsed, knownDangerSigns);
+  return buildTurnInstruction(userText, effectiveProbes, knownDangerSigns);
 }
 
 function isLikelyUnclearReply(userText: string): boolean {
@@ -161,12 +157,16 @@ function classifyIncomingTurn(
   return hasKnownQuestion ? 'unclear' : 'continuation';
 }
 
-function shouldForceDirectGuidance(probeTurnsUsed: number, knownDangerSigns: string[], action: string): boolean {
-  return action === 'probe' && probeTurnsUsed >= 1 && knownDangerSigns.length === 0;
+function getEffectiveProbes(probeTurnsUsed: number, clientAssistantTurns: number): number {
+  return Math.max(probeTurnsUsed, clientAssistantTurns);
 }
 
-function shouldBypassFurtherProbing(probeTurnsUsed: number, knownDangerSigns: string[]): boolean {
-  return probeTurnsUsed >= 1 && knownDangerSigns.length === 0;
+function shouldForceDirectGuidance(effectiveProbes: number, knownDangerSigns: string[], action: string): boolean {
+  return action === 'probe' && effectiveProbes >= 1 && knownDangerSigns.length === 0;
+}
+
+function shouldBypassFurtherProbing(effectiveProbes: number, knownDangerSigns: string[]): boolean {
+  return effectiveProbes >= 1 && knownDangerSigns.length === 0;
 }
 
 async function rewriteAsDirectGuidance(
@@ -282,10 +282,13 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
+    const clientAssistantTurns = normalizedMessages.filter((m) => m.role === 'model').length;
+
     const session = await recordUserTurn(ai, sessionId, userText, {
       rawUserText,
       turnKind,
     });
+    const effectiveProbes = getEffectiveProbes(session.activeCase.probeTurnsUsed, clientAssistantTurns);
     const systemPrompt = buildPromptWithSummary({
       profile: session.patientProfile,
       caseState: session.activeCase,
@@ -294,7 +297,7 @@ export async function POST(request: Request): Promise<Response> {
     });
 
     if (shouldBypassFurtherProbing(
-      session.activeCase.probeTurnsUsed,
+      effectiveProbes,
       session.activeCase.dangerSignsKnown || [],
     )) {
       const directReply = await generateDirectGuidance(
@@ -326,7 +329,7 @@ export async function POST(request: Request): Promise<Response> {
           text: isLatestUserMessage
             ? buildUserTurnText(
               message.content,
-              session.activeCase.probeTurnsUsed,
+              effectiveProbes,
               session.activeCase.dangerSignsKnown || [],
               session.activeCase.pendingPreviousProblemCheck,
               session.activeCase.previousProblemFollowUpAsked,
@@ -350,7 +353,7 @@ export async function POST(request: Request): Promise<Response> {
     let reply = parsed.reply;
 
     if (shouldForceDirectGuidance(
-      session.activeCase.probeTurnsUsed,
+      effectiveProbes,
       session.activeCase.dangerSignsKnown || [],
       action,
     )) {
