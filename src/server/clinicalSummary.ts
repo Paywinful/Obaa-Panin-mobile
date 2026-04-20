@@ -1,101 +1,98 @@
 import { GoogleGenAI } from '@google/genai';
-import { UserProfile, SessionMessage } from './sessionStore';
+import { ActiveCaseState, PatientProfile, PromptContext } from '../types';
+import { SessionMessage } from './sessionStore';
+import { buildPromptContext } from '../utils/systemPrompt';
 
 const SUMMARY_REFINE_EVERY = 4;
 
-const SUMMARY_REFINER_PROMPT = `You are updating a compact clinical memory summary for a maternal-health chatbot.
-
-Your task:
-Refine the existing summary using the recent conversation.
+const SUMMARY_REFINER_PROMPT = `You update a compact structured active-case summary for a maternal-health clinician assistant.
 
 Rules:
-- Return ONLY plain text
-- Keep it short and structured
-- Focus only on clinically relevant context
-- Include only facts that were actually stated
-- Do not invent symptoms
-- Do not add diagnoses
-- Capture continuity for future turns
+- Return ONLY valid JSON
+- Keep only clinically relevant current-case details
+- Focus on the user's latest concern
+- Do not carry forward old symptoms unless still clinically active
+- Do not invent facts
 
-Include these fields where known:
-- pregnancy_status
-- gestational_age
-- postpartum_status
-- breastfeeding_status
-- main_concern
-- latest_update
-- last_medicine_discussed
-- current_action
-- red_flags
-- open_question
+Return this shape:
+{
+  "mainSymptom": string | null,
+  "onset": string | null,
+  "severity": string | null,
+  "dangerSignsKnown": string[],
+  "symptomsStillActive": string[],
+  "adviceAlreadyGiven": string[],
+  "probeTurnsUsed": number,
+  "triageLevel": "probe" | "routine" | "urgent" | "emergency"
+}`;
 
-Format:
-CLINICAL SUMMARY:
-- pregnancy_status: ...
-- gestational_age: ...
-- postpartum_status: ...
-- breastfeeding_status: ...
-- main_concern: ...
-- latest_update: ...
-- last_medicine_discussed: ...
-- current_action: ...
-- red_flags: ...
-- open_question: ...
+function dedupe(values: string[] | undefined): string[] {
+  return values ? Array.from(new Set(values)).slice(-5) : [];
+}
 
-If something is unknown, write unknown.`;
+export function sanitizeActiveCase(caseState: ActiveCaseState): ActiveCaseState {
+  const main = caseState.mainSymptom?.toLowerCase();
+  const activeSymptoms = dedupe(caseState.symptomsStillActive).filter((symptom) => {
+    if (!main) return true;
+    return symptom.toLowerCase() === main || caseState.dangerSignsKnown?.includes(symptom);
+  });
 
-export function buildClinicalSummary(profile: UserProfile): string {
-  const redFlags = profile.red_flags.length > 0 ? profile.red_flags.join(', ') : 'none';
+  return {
+    ...caseState,
+    dangerSignsKnown: dedupe(caseState.dangerSignsKnown),
+    symptomsStillActive: activeSymptoms,
+    adviceAlreadyGiven: dedupe(caseState.adviceAlreadyGiven),
+  };
+}
 
-  return [
-    'CLINICAL SUMMARY:',
-    `- pregnancy_status: ${profile.pregnancy_status || 'unknown'}`,
-    `- gestational_age: ${profile.gestational_age || 'unknown'}`,
-    `- pregnancy_selected_month: ${profile.pregnancy_selected_month ?? 'unknown'}`,
-    `- pregnancy_answered_at: ${profile.pregnancy_answered_at ?? 'unknown'}`,
-    `- postpartum_status: ${profile.postpartum_status || 'unknown'}`,
-    `- breastfeeding_status: ${profile.breastfeeding_status || 'unknown'}`,
-    `- main_concern: ${profile.main_concern || 'unknown'}`,
-    `- latest_update: ${profile.latest_update || 'unknown'}`,
-    `- last_medicine_discussed: ${profile.last_medicine_discussed || 'unknown'}`,
-    `- current_action: ${profile.last_action || 'unknown'}`,
-    `- red_flags: ${redFlags}`,
-    `- open_question: ${profile.open_question || 'none'}`,
-    '',
-    'IMPORTANT:',
-    '- This is the same patient continuing the conversation.',
-    '- Use this for continuity.',
-    '- Do not repeat questions already answered.',
-    '- Prioritize ongoing concerns.',
-  ].join('\n');
+export function buildClinicalSummary(
+  patientProfile: PatientProfile,
+  activeCase: ActiveCaseState,
+): string {
+  const promptContext: PromptContext = {
+    profile: patientProfile,
+    caseState: sanitizeActiveCase(activeCase),
+  };
+
+  return buildPromptContext(promptContext);
 }
 
 export async function refineSummaryWithLLM(
   ai: GoogleGenAI,
-  currentSummary: string,
+  patientProfile: PatientProfile,
+  activeCase: ActiveCaseState,
   recentMessages: SessionMessage[],
-): Promise<string> {
+): Promise<ActiveCaseState> {
   try {
     const conversationLines = recentMessages
-      .slice(-8)
+      .slice(-6)
       .map((m) => `${m.role === 'model' ? 'Assistant' : 'User'}: ${m.content}`)
       .join('\n');
 
-    const prompt = `${SUMMARY_REFINER_PROMPT}\n\nExisting summary:\n${currentSummary}\n\nRecent conversation:\n${conversationLines}`;
+    const existingCase = JSON.stringify(sanitizeActiveCase(activeCase), null, 2);
+    const profileBlock = buildPromptContext({ profile: patientProfile });
+    const prompt = `${SUMMARY_REFINER_PROMPT}\n\n${profileBlock}\n\nExisting active case:\n${existingCase}\n\nRecent conversation:\n${conversationLines}`;
 
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
     });
 
-    const refined = response.text?.trim() || '';
-    if (refined && refined.startsWith('CLINICAL SUMMARY:')) {
-      return refined;
-    }
+    const parsed = JSON.parse(response.text || '{}') as Partial<ActiveCaseState>;
+    return sanitizeActiveCase({
+      mainSymptom: parsed.mainSymptom ?? activeCase.mainSymptom,
+      onset: parsed.onset ?? activeCase.onset,
+      severity: parsed.severity ?? activeCase.severity,
+      dangerSignsKnown: Array.isArray(parsed.dangerSignsKnown) ? parsed.dangerSignsKnown : activeCase.dangerSignsKnown,
+      symptomsStillActive: Array.isArray(parsed.symptomsStillActive) ? parsed.symptomsStillActive : activeCase.symptomsStillActive,
+      adviceAlreadyGiven: Array.isArray(parsed.adviceAlreadyGiven) ? parsed.adviceAlreadyGiven : activeCase.adviceAlreadyGiven,
+      probeTurnsUsed: typeof parsed.probeTurnsUsed === 'number' ? parsed.probeTurnsUsed : activeCase.probeTurnsUsed,
+      triageLevel: parsed.triageLevel ?? activeCase.triageLevel,
+    });
   } catch (err) {
     console.error('Summary refinement failed:', err);
+    return sanitizeActiveCase(activeCase);
   }
-  return currentSummary;
 }
 
 export function shouldRefineSummary(turnCount: number): boolean {

@@ -1,17 +1,45 @@
 import { GoogleGenAI } from '@google/genai';
-import { buildClinicalSummary, refineSummaryWithLLM, shouldRefineSummary } from './clinicalSummary';
-import { inferLightProfile } from './profileInference';
+import { buildClinicalSummary, refineSummaryWithLLM, sanitizeActiveCase, shouldRefineSummary } from './clinicalSummary';
+import {
+  applyPregnancyProfileToPatientProfile,
+  inferActiveCase,
+  inferPatientProfile,
+  updateCaseAfterAssistantTurn,
+} from './profileInference';
 import { getSession, Session, updateSession } from './sessionStore';
-import { ClinicalAction, MedicineConfidence, PregnancyProfile } from '../types';
-import { describePregnancyAge, formatAnsweredDate } from '../utils/pregnancyProfile';
+import { ClinicalAction, MedicineConfidence, PregnancyProfile, UserTurnKind } from '../types';
 
-const DEFAULT_REPLY = 'Mepa wo kyɛw, san ka nea ɛrekɛ so no bio ma mente ase yiye.';
+const DEFAULT_REPLY = 'Mepa wo kyɛw, san ka nea ɛrekɔ so no bio ma mente ase yiye.';
 
 export interface ParsedClinicalResponse {
   action: ClinicalAction;
   reply: string;
   identifiedMedicine?: string;
   confidence?: MedicineConfidence;
+}
+
+type ConversationLogRole = 'user' | 'assistant';
+
+interface ConversationLogPayload {
+  sessionId: string;
+  role: ConversationLogRole;
+  content: string;
+  action?: ClinicalAction;
+  source?: 'chat' | 'medicine' | 'system';
+  meta?: Record<string, unknown>;
+}
+
+export function logConversationTurn(payload: ConversationLogPayload): void {
+  console.log(JSON.stringify({
+    type: 'conversation_turn',
+    timestamp: new Date().toISOString(),
+    sessionId: payload.sessionId,
+    role: payload.role,
+    source: payload.source || 'chat',
+    action: payload.action || null,
+    content: payload.content,
+    meta: payload.meta || {},
+  }));
 }
 
 function trimSessionMessages(session: Session): void {
@@ -89,15 +117,32 @@ export async function recordUserTurn(
   ai: GoogleGenAI,
   sessionId: string,
   userText: string,
+  options?: { rawUserText?: string; turnKind?: UserTurnKind },
 ): Promise<Session> {
   const session = getSession(sessionId);
 
-  inferLightProfile(userText, session.profile);
-  session.profile.user_turn_count += 1;
-  session.clinical_summary = buildClinicalSummary(session.profile);
+  logConversationTurn({
+    sessionId,
+    role: 'user',
+    content: options?.rawUserText || userText,
+    meta: options?.turnKind ? { turnKind: options.turnKind, normalizedText: userText } : undefined,
+  });
 
-  if (shouldRefineSummary(session.profile.user_turn_count)) {
-    session.clinical_summary = await refineSummaryWithLLM(ai, session.clinical_summary, session.messages);
+  inferPatientProfile(userText, session.patientProfile);
+  session.activeCase.latestUserTurnKind = options?.turnKind || 'continuation';
+  session.activeCase.latestUserTurnRaw = options?.rawUserText || userText;
+  inferActiveCase(userText, session.activeCase, options?.turnKind);
+  session.activeCase = sanitizeActiveCase(session.activeCase);
+  session.clinical_summary = buildClinicalSummary(session.patientProfile, session.activeCase);
+
+  if (shouldRefineSummary(session.messages.length + 1)) {
+    session.activeCase = await refineSummaryWithLLM(
+      ai,
+      session.patientProfile,
+      session.activeCase,
+      session.messages,
+    );
+    session.clinical_summary = buildClinicalSummary(session.patientProfile, session.activeCase);
   }
 
   session.messages.push({ role: 'user', content: userText });
@@ -115,17 +160,27 @@ export function persistAssistantTurn(
 ): Session {
   const session = getSession(sessionId);
 
-  session.profile.last_action = action;
-  session.profile.last_advice = reply.slice(0, 220);
-  session.profile.open_question = action === 'probe' ? reply.slice(0, 180) : null;
+  updateCaseAfterAssistantTurn(session.activeCase, action, reply);
 
   if (identifiedMedicine) {
-    session.profile.last_medicine_discussed = identifiedMedicine;
+    session.activeCase.adviceAlreadyGiven = Array.from(
+      new Set([...(session.activeCase.adviceAlreadyGiven || []), `medicine:${identifiedMedicine}`]),
+    );
   }
 
   session.messages.push({ role: 'model', content: reply });
   trimSessionMessages(session);
-  session.clinical_summary = buildClinicalSummary(session.profile);
+  session.activeCase = sanitizeActiveCase(session.activeCase);
+  session.clinical_summary = buildClinicalSummary(session.patientProfile, session.activeCase);
+
+  logConversationTurn({
+    sessionId,
+    role: 'assistant',
+    content: reply,
+    action,
+    source: identifiedMedicine ? 'medicine' : 'chat',
+    meta: identifiedMedicine ? { identifiedMedicine } : undefined,
+  });
 
   updateSession(sessionId, session);
   return session;
@@ -137,14 +192,14 @@ export function applyPregnancyProfile(
 ): Session {
   const session = getSession(sessionId);
 
-  session.profile.pregnancy_status = pregnancyProfile.isPregnant ? 'pregnant' : 'not_pregnant';
-  session.profile.pregnancy_selected_month = pregnancyProfile.selectedMonth;
-  session.profile.pregnancy_answered_at = pregnancyProfile.answeredAt;
-  session.profile.gestational_age = pregnancyProfile.isPregnant
-    ? `Bosome ${pregnancyProfile.selectedMonth}; answered on ${formatAnsweredDate(pregnancyProfile.answeredAt)}; estimated current age ${describePregnancyAge(pregnancyProfile)}`
-    : 'not pregnant';
+  applyPregnancyProfileToPatientProfile(
+    session.patientProfile,
+    pregnancyProfile.isPregnant,
+    pregnancyProfile.selectedMonth,
+    pregnancyProfile.answeredAt,
+  );
 
-  session.clinical_summary = buildClinicalSummary(session.profile);
+  session.clinical_summary = buildClinicalSummary(session.patientProfile, session.activeCase);
   updateSession(sessionId, session);
   return session;
 }

@@ -11,6 +11,7 @@ export type AppPhase = 'idle' | 'listening' | 'processing' | 'speaking';
 export type LanguageCode = 'twi' | 'en';
 export type ClinicalAction = 'probe' | 'routine' | 'urgent' | 'emergency';
 export type MedicineConfidence = 'low' | 'medium' | 'high';
+export type UserTurnKind = 'answer' | 'continuation' | 'new_concern' | 'unclear';
 
 export interface PregnancyProfile {
   isPregnant: boolean;
@@ -18,10 +19,49 @@ export interface PregnancyProfile {
   answeredAt: number;
 }
 
+export interface PatientProfile {
+  isPregnant: boolean | null;
+  pregnancyStartDate?: string | null;
+  gestationalWeeks?: number | null;
+  isPostpartum?: boolean | null;
+  deliveryDate?: string | null;
+  isBreastfeeding?: boolean | null;
+  pregnancyAnsweredAt?: number | null;
+  pregnancySelectedMonth?: number | null;
+}
+
+export interface ActiveCaseState {
+  mainSymptom?: string;
+  onset?: string;
+  severity?: string;
+  dangerSignsKnown?: string[];
+  symptomsStillActive?: string[];
+  adviceAlreadyGiven?: string[];
+  probeTurnsUsed: number;
+  triageLevel?: ClinicalAction;
+  pendingPreviousProblemCheck?: boolean;
+  previousProblemSymptom?: string;
+  previousProblemFollowUpAsked?: boolean;
+  queuedConcern?: string;
+  queuedConcernSymptom?: string;
+  queuedConcernToAddress?: string;
+  lastAssistantQuestion?: string;
+  latestUserTurnKind?: UserTurnKind;
+  latestUserTurnRaw?: string;
+}
+
+export interface PromptContext {
+  profile?: PatientProfile;
+  caseState?: ActiveCaseState;
+  language?: 'ak' | 'en';
+  isFreshConversation?: boolean;
+}
+
 export interface ChatRequest {
   messages: Message[];
   language?: LanguageCode;
   sessionId?: string;
+  pregnancyProfile?: PregnancyProfile | null;
 }
 
 export interface ChatResponse {

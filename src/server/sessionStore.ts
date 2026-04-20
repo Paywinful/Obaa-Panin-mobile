@@ -1,20 +1,4 @@
-export interface UserProfile {
-  pregnancy_status: string;
-  gestational_age: string | null;
-  pregnancy_selected_month: number | null;
-  pregnancy_answered_at: number | null;
-  postpartum_status: string;
-  postpartum_duration: string | null;
-  breastfeeding_status: string;
-  main_concern: string | null;
-  latest_update: string | null;
-  last_medicine_discussed: string | null;
-  last_action: string;
-  last_advice: string | null;
-  red_flags: string[];
-  open_question: string | null;
-  user_turn_count: number;
-}
+import { ActiveCaseState, ClinicalAction, PatientProfile } from '../types';
 
 export interface SessionMessage {
   role: 'user' | 'model';
@@ -22,28 +6,44 @@ export interface SessionMessage {
 }
 
 export interface Session {
-  profile: UserProfile;
+  patientProfile: PatientProfile;
+  activeCase: ActiveCaseState;
   clinical_summary: string;
   messages: SessionMessage[];
 }
 
-function createDefaultProfile(): UserProfile {
+function createDefaultPatientProfile(): PatientProfile {
   return {
-    pregnancy_status: 'unknown',
-    gestational_age: null,
-    pregnancy_selected_month: null,
-    pregnancy_answered_at: null,
-    postpartum_status: 'unknown',
-    postpartum_duration: null,
-    breastfeeding_status: 'unknown',
-    main_concern: null,
-    latest_update: null,
-    last_medicine_discussed: null,
-    last_action: 'probe',
-    last_advice: null,
-    red_flags: [],
-    open_question: null,
-    user_turn_count: 0,
+    isPregnant: null,
+    pregnancyStartDate: null,
+    gestationalWeeks: null,
+    isPostpartum: null,
+    deliveryDate: null,
+    isBreastfeeding: null,
+    pregnancyAnsweredAt: null,
+    pregnancySelectedMonth: null,
+  };
+}
+
+function createDefaultActiveCase(): ActiveCaseState {
+  return {
+    mainSymptom: undefined,
+    onset: undefined,
+    severity: undefined,
+    dangerSignsKnown: [],
+    symptomsStillActive: [],
+    adviceAlreadyGiven: [],
+    probeTurnsUsed: 0,
+    triageLevel: 'probe',
+    pendingPreviousProblemCheck: false,
+    previousProblemSymptom: undefined,
+    previousProblemFollowUpAsked: false,
+    queuedConcern: undefined,
+    queuedConcernSymptom: undefined,
+    queuedConcernToAddress: undefined,
+    lastAssistantQuestion: undefined,
+    latestUserTurnKind: undefined,
+    latestUserTurnRaw: undefined,
   };
 }
 
@@ -53,7 +53,8 @@ export function getSession(id: string = 'default'): Session {
   let session = sessions.get(id);
   if (!session) {
     session = {
-      profile: createDefaultProfile(),
+      patientProfile: createDefaultPatientProfile(),
+      activeCase: createDefaultActiveCase(),
       clinical_summary: '',
       messages: [],
     };
@@ -68,4 +69,12 @@ export function updateSession(id: string, session: Session): void {
 
 export function clearSession(id: string = 'default'): void {
   sessions.delete(id);
+}
+
+export function resetActiveCase(session: Session): void {
+  session.activeCase = createDefaultActiveCase();
+}
+
+export function isGuidanceAction(action: ClinicalAction): boolean {
+  return action === 'routine' || action === 'urgent' || action === 'emergency';
 }

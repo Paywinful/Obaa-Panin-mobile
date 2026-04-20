@@ -1,4 +1,4 @@
-const ASR_ENDPOINT = 'https://whisper-service-194975005212.europe-west4.run.app/transcribe';
+const ASR_ENDPOINT = 'https://whisper-service-health-194975005212.europe-west4.run.app/transcribe';
 
 function normalizeLanguage(value: FormDataEntryValue | null): string {
   if (typeof value !== 'string') {

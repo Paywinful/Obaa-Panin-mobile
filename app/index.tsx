@@ -43,6 +43,7 @@ export default function VoiceChatScreen() {
     language,
     sessionId,
     intakeComplete,
+    pregnancyProfile,
     refreshSession,
   } = useConsultation();
   const { isRecording, startRecording, stopRecording } = useAudioCapture();
@@ -147,7 +148,7 @@ export default function VoiceChatScreen() {
         const nextMessages = [...messages, userMsg];
         setMessages(nextMessages);
 
-        const chatData = await sendChatMessage(nextMessages, language, sessionId);
+        const chatData = await sendChatMessage(nextMessages, language, sessionId, pregnancyProfile);
         if (chatData.error || !chatData.content) {
           setError(chatData.error || Strings.networkError);
           setPhase('idle');
@@ -189,6 +190,7 @@ export default function VoiceChatScreen() {
     isSpeaking,
     language,
     messages,
+    pregnancyProfile,
     sessionId,
     speak,
     startRecording,

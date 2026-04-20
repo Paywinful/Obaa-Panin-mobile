@@ -1,10 +1,11 @@
-import { ChatResponse, LanguageCode, Message } from '../types';
+import { ChatResponse, LanguageCode, Message, PregnancyProfile } from '../types';
 import { getApiUrl } from '../utils/getApiUrl';
 
 export async function sendChatMessage(
   messages: Message[],
   language: LanguageCode = 'twi',
   sessionId?: string,
+  pregnancyProfile?: PregnancyProfile | null,
 ): Promise<ChatResponse> {
   try {
     const response = await fetch(`${getApiUrl()}/api/chat`, {
@@ -17,6 +18,7 @@ export async function sendChatMessage(
         })),
         language,
         sessionId,
+        pregnancyProfile,
       }),
     });
 

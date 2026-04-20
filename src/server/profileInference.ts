@@ -1,72 +1,252 @@
-import { UserProfile } from './sessionStore';
+import { ActiveCaseState, ClinicalAction, PatientProfile, UserTurnKind } from '../types';
 
-function addRedFlag(profile: UserProfile, flag: string): void {
-  if (!profile.red_flags.includes(flag)) {
-    profile.red_flags.push(flag);
+const SYMPTOM_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
+  { label: 'headache', pattern: /headache|ti y[ɛe] me ya|ti pa/i },
+  { label: 'bleeding', pattern: /bleeding|mogya|blood/i },
+  { label: 'abdominal pain', pattern: /abdominal pain|stomach pain|yam? ya|pain/i },
+  { label: 'reduced baby movement', pattern: /baby.*not moving|abofra.*nkeka|reduced.*movement/i },
+  { label: 'difficulty breathing', pattern: /breathing|ahomegye|home y[ɛe] den/i },
+  { label: 'fever', pattern: /fever|hot body|body hot/i },
+  { label: 'vomiting', pattern: /vomit|throwing up|foro/i },
+  { label: 'weakness', pattern: /weak|br[ɛe]|tired/i },
+  { label: 'dizziness', pattern: /dizz|faint|at[oɔ] agu/i },
+];
+
+const DANGER_SIGN_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
+  { label: 'bleeding in pregnancy', pattern: /bleeding|mogya|blood/i },
+  { label: 'severe abdominal pain', pattern: /severe pain|pain too much|yam? ya paa/i },
+  { label: 'reduced baby movement', pattern: /baby.*not moving|abofra.*nkeka|reduced.*movement/i },
+  { label: 'convulsions', pattern: /convulsion|seizure|fit/i },
+  { label: 'difficulty breathing', pattern: /breathing|ahomegye|home y[ɛe] den/i },
+  { label: 'severe headache with blurred vision', pattern: /headache.*blur|blurred vision|ani so/i },
+  { label: 'fainting', pattern: /faint|collapse|at[oɔ] agu/i },
+  { label: 'heavy bleeding after delivery', pattern: /heavy bleeding.*delivery|mogya.*mawo/i },
+  { label: 'fever with serious weakness after delivery', pattern: /fever.*weak|hot body.*weak/i },
+];
+
+function pushUnique(values: string[] | undefined, value: string): string[] {
+  const next = values ? [...values] : [];
+  if (!next.includes(value)) {
+    next.push(value);
+  }
+  return next;
+}
+
+export function detectMainSymptom(userText: string): string | undefined {
+  const match = SYMPTOM_PATTERNS.find((entry) => entry.pattern.test(userText));
+  return match?.label;
+}
+
+function resetForNewConcern(activeCase: ActiveCaseState, mainSymptom: string): void {
+  activeCase.mainSymptom = mainSymptom;
+  activeCase.symptomsStillActive = [mainSymptom];
+  activeCase.dangerSignsKnown = [];
+  activeCase.adviceAlreadyGiven = [];
+  activeCase.probeTurnsUsed = 0;
+  activeCase.triageLevel = 'probe';
+  activeCase.onset = undefined;
+  activeCase.severity = undefined;
+}
+
+function detectDangerSigns(userText: string): string[] {
+  return DANGER_SIGN_PATTERNS.filter((entry) => entry.pattern.test(userText)).map((entry) => entry.label);
+}
+
+function detectSeverity(userText: string): string | undefined {
+  if (/severe|paa|very bad|too much/i.test(userText)) return 'severe';
+  if (/mild|kakra|small/i.test(userText)) return 'mild';
+  if (/moderate|middle/i.test(userText)) return 'moderate';
+  return undefined;
+}
+
+function detectOnset(userText: string): string | undefined {
+  if (/today|an[oɔ]pa yi|nn[ɛɛ] yi/i.test(userText)) return 'today';
+  if (/yesterday|ennora/i.test(userText)) return 'yesterday';
+  if (/for \d+ days|\d+ days|nnansa|days/i.test(userText)) return 'days';
+  if (/for \d+ weeks|\d+ weeks|nnaw[oɔ]twe/i.test(userText)) return 'weeks';
+  return undefined;
+}
+
+function inferPregnancyWeeksFromMonth(selectedMonth: number, answeredAt: number): number {
+  const monthToWeek: Record<number, number> = {
+    1: 2,
+    2: 6,
+    3: 11,
+    4: 15,
+    5: 20,
+    6: 25,
+    7: 29,
+    8: 33,
+    9: 38,
+  };
+
+  const base = monthToWeek[selectedMonth] ?? 2;
+  const elapsedWeeks = Math.max(0, Math.floor((Date.now() - answeredAt) / (7 * 24 * 60 * 60 * 1000)));
+  return base + elapsedWeeks;
+}
+
+export function applyPregnancyProfileToPatientProfile(
+  patientProfile: PatientProfile,
+  isPregnant: boolean,
+  selectedMonth: number | null,
+  answeredAt: number,
+): void {
+  patientProfile.isPregnant = isPregnant;
+  patientProfile.pregnancyAnsweredAt = answeredAt;
+  patientProfile.pregnancySelectedMonth = selectedMonth;
+  patientProfile.isPostpartum = isPregnant ? false : patientProfile.isPostpartum;
+  patientProfile.gestationalWeeks =
+    isPregnant && selectedMonth ? inferPregnancyWeeksFromMonth(selectedMonth, answeredAt) : null;
+}
+
+export function inferPatientProfile(userText: string, patientProfile: PatientProfile): void {
+  const text = userText.toLowerCase();
+
+  if (/mawo|mewoe|i gave birth|delivered|postpartum|after delivery/.test(text)) {
+    patientProfile.isPostpartum = true;
+    patientProfile.isPregnant = false;
+  }
+
+  if (/pregnant|nyins[ɛe]n/.test(text) && patientProfile.isPregnant == null) {
+    patientProfile.isPregnant = true;
+  }
+
+  if (/breastfeed|breastfeeding|nufo[oɔ]/.test(text)) {
+    patientProfile.isBreastfeeding = true;
+  }
+
+  if (/not breastfeeding|stopped breastfeeding/.test(text)) {
+    patientProfile.isBreastfeeding = false;
   }
 }
 
-export function inferLightProfile(userText: string, profile: UserProfile): void {
-  const text = userText.toLowerCase();
+export function inferActiveCase(
+  userText: string,
+  activeCase: ActiveCaseState,
+  turnKind: UserTurnKind = 'continuation',
+): void {
+  if (activeCase.pendingPreviousProblemCheck && activeCase.previousProblemFollowUpAsked) {
+    const queuedConcern = activeCase.queuedConcern;
+    const queuedConcernSymptom = activeCase.queuedConcernSymptom;
 
-  // Pregnancy detection
-  if (/mew[eɛ] nyins[eɛ]n|pregnant|nyins[eɛ]n|mey[eɛ] pregnant/.test(text)) {
-    profile.pregnancy_status = 'pregnant';
-  }
+    activeCase.pendingPreviousProblemCheck = false;
+    activeCase.previousProblemFollowUpAsked = false;
+    activeCase.previousProblemSymptom = undefined;
+    activeCase.queuedConcern = undefined;
+    activeCase.queuedConcernSymptom = undefined;
+    activeCase.queuedConcernToAddress = queuedConcern;
 
-  // Postpartum detection
-  if (/mawo|mewoe|i gave birth|delivered|postpartum|after delivery/.test(text)) {
-    profile.postpartum_status = 'postpartum';
-    profile.pregnancy_status = 'not_pregnant';
-  }
+    if (queuedConcernSymptom) {
+      resetForNewConcern(activeCase, queuedConcernSymptom);
 
-  if (/breastfeed|breastfeeding|me ma abofra no nufo[oɔ]|me ma baby no nufo[oɔ]|nursing/.test(text)) {
-    profile.breastfeeding_status = 'breastfeeding';
-  }
+      const queuedDangerSigns = detectDangerSigns(queuedConcern || '');
+      const queuedSeverity = detectSeverity(queuedConcern || '');
+      const queuedOnset = detectOnset(queuedConcern || '');
 
-  if (/not breastfeeding|stopped breastfeeding|me mma abofra no nufo[oɔ] bio/.test(text)) {
-    profile.breastfeeding_status = 'not_breastfeeding';
-  }
+      for (const dangerSign of queuedDangerSigns) {
+        activeCase.dangerSignsKnown = pushUnique(activeCase.dangerSignsKnown, dangerSign);
+      }
 
-  // Gestational age — months
-  const monthMatch = text.match(/(?:bosome|months?)\s*(\d{1,2})|(\d{1,2})\s*(?:months?|bosome)/);
-  if (monthMatch) {
-    const val = monthMatch[1] || monthMatch[2];
-    if (val) profile.gestational_age = `${val} months`;
-  }
+      if (queuedSeverity) {
+        activeCase.severity = queuedSeverity;
+      }
 
-  // Gestational age — weeks
-  const weekMatch = text.match(/(?:weeks?|nnaw[eɛ]twe)\s*(\d{1,2})|(\d{1,2})\s*(?:weeks?|nnaw[eɛ]twe)/);
-  if (weekMatch) {
-    const val = weekMatch[1] || weekMatch[2];
-    if (val) profile.gestational_age = `${val} weeks`;
-  }
-
-  // Main concern — set once from first message
-  if (!profile.main_concern) {
-    profile.main_concern = userText.slice(0, 160);
+      if (queuedOnset) {
+        activeCase.onset = queuedOnset;
+      }
+    }
   }
 
-  // Always update latest
-  profile.latest_update = userText.slice(0, 220);
+  const mainSymptom = detectMainSymptom(userText);
+  const dangerSigns = detectDangerSigns(userText);
+  const severity = detectSeverity(userText);
+  const onset = detectOnset(userText);
 
-  // Red flags
-  if (/abofra no nkeka|baby not moving|movement|nkeka s[eɛ] kan no|reduced.*movement/.test(text)) {
-    addRedFlag(profile, 'reduced_fetal_movement');
+  if (turnKind === 'answer') {
+    for (const dangerSign of dangerSigns) {
+      activeCase.dangerSignsKnown = pushUnique(activeCase.dangerSignsKnown, dangerSign);
+    }
+
+    if (severity) {
+      activeCase.severity = severity;
+    }
+
+    if (onset) {
+      activeCase.onset = onset;
+    }
+
+    if (mainSymptom && (!activeCase.mainSymptom || mainSymptom === activeCase.mainSymptom)) {
+      if (!activeCase.mainSymptom) {
+        resetForNewConcern(activeCase, mainSymptom);
+      } else {
+        activeCase.symptomsStillActive = pushUnique(activeCase.symptomsStillActive, mainSymptom);
+      }
+    }
+
+    return;
   }
-  if (/mogya|bleeding|blood/.test(text)) {
-    addRedFlag(profile, 'bleeding');
+
+  const shouldCheckPreviousProblemFirst =
+    turnKind !== 'continuation' &&
+    mainSymptom &&
+    activeCase.mainSymptom &&
+    mainSymptom !== activeCase.mainSymptom &&
+    !activeCase.pendingPreviousProblemCheck &&
+    ((activeCase.adviceAlreadyGiven?.length || 0) > 0 || activeCase.probeTurnsUsed > 0);
+
+  if (shouldCheckPreviousProblemFirst) {
+    activeCase.pendingPreviousProblemCheck = true;
+    activeCase.previousProblemFollowUpAsked = false;
+    activeCase.previousProblemSymptom = activeCase.mainSymptom;
+    activeCase.queuedConcern = userText;
+    activeCase.queuedConcernSymptom = mainSymptom;
+    activeCase.queuedConcernToAddress = undefined;
+    return;
   }
-  if (/hom[e ]+y[eɛ] den|ahomegye|breathing difficulty|breathing|chest/.test(text)) {
-    addRedFlag(profile, 'breathing_difficulty');
+
+  if (mainSymptom && mainSymptom !== activeCase.mainSymptom) {
+    resetForNewConcern(activeCase, mainSymptom);
+  } else if (mainSymptom) {
+    activeCase.symptomsStillActive = pushUnique(activeCase.symptomsStillActive, mainSymptom);
   }
-  if (/ti y[eɛ] me ya|ani so y[eɛ] me ya|headache|blurred vision|ani so/.test(text)) {
-    addRedFlag(profile, 'headache_or_visual_symptom');
+
+  for (const dangerSign of dangerSigns) {
+    activeCase.dangerSignsKnown = pushUnique(activeCase.dangerSignsKnown, dangerSign);
   }
-  if (/seizure|convulsion|fit|tw[eɛ]tw[eɛ]/.test(text)) {
-    addRedFlag(profile, 'seizures');
+
+  if (severity) {
+    activeCase.severity = severity;
   }
-  if (/faint|collapse|at[uo] agu/.test(text)) {
-    addRedFlag(profile, 'fainting');
+
+  if (onset) {
+    activeCase.onset = onset;
   }
+}
+
+export function updateCaseAfterAssistantTurn(
+  activeCase: ActiveCaseState,
+  action: ClinicalAction,
+  reply: string,
+): void {
+  activeCase.triageLevel = action;
+  activeCase.lastAssistantQuestion = action === 'probe' ? reply : undefined;
+
+  if (activeCase.pendingPreviousProblemCheck && !activeCase.previousProblemFollowUpAsked && action === 'probe') {
+    activeCase.previousProblemFollowUpAsked = true;
+    return;
+  }
+
+  if (activeCase.queuedConcernToAddress && action !== 'probe') {
+    activeCase.queuedConcernToAddress = undefined;
+  }
+
+  if (action === 'probe') {
+    activeCase.probeTurnsUsed += 1;
+    return;
+  }
+
+  activeCase.adviceAlreadyGiven = pushUnique(
+    activeCase.adviceAlreadyGiven,
+    reply.slice(0, 120),
+  );
 }
