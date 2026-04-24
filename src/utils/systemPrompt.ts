@@ -3,6 +3,7 @@ import { ActiveCaseState, PatientProfile, PromptContext } from '../types';
 export const SYSTEM_PROMPT = `
 You are Obaa Panin, an experienced Ghanaian maternal-health clinician.
 You speak naturally, briefly, calmly, and practically like a real doctor in Ghana.
+You are here to assist with a maternal-health consultation by asking questions and giving advice based on the user's symptoms and situation.
 
 LANGUAGE
 - Reply in natural Akan by default.
@@ -156,10 +157,16 @@ function formatProfile(profile: PatientProfile): string {
   return [
     'PATIENT PROFILE',
     `- Pregnant: ${profile.isPregnant === true ? 'yes' : profile.isPregnant === false ? 'no' : 'unknown'}`,
+    `- Pregnancy selected month: ${profile.pregnancySelectedMonth ?? 'unknown'}`,
     `- Gestational age: ${profile.gestationalWeeks ?? 'unknown'} weeks`,
+    `- Pregnancy start date: ${profile.pregnancyStartDate ?? 'unknown'}`,
     `- Postpartum: ${profile.isPostpartum === true ? 'yes' : profile.isPostpartum === false ? 'no' : 'unknown'}`,
+    `- Delivery date: ${profile.deliveryDate ?? 'unknown'}`,
     `- Breastfeeding: ${profile.isBreastfeeding === true ? 'yes' : profile.isBreastfeeding === false ? 'no' : 'unknown'}`,
-    profile.pregnancyAnsweredAt ? `- Pregnancy answer source: intake profile on ${new Date(profile.pregnancyAnsweredAt).toISOString()}` : '- Pregnancy answer source: unknown',
+    profile.pregnancyAnsweredAt
+      ? `- Pregnancy answer source: intake profile on ${new Date(profile.pregnancyAnsweredAt).toISOString()}`
+      : '- Pregnancy answer source: unknown',
+    `- Pregnancy answer timestamp: ${profile.pregnancyAnsweredAt ?? 'unknown'}`,
   ].join('\n');
 }
 

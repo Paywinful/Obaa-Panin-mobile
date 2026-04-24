@@ -67,6 +67,20 @@ export default function PregnancyProfileScreen() {
           ) : null}
 
           <View style={styles.detailRow}>
+            <Text style={styles.label}>Postpartum</Text>
+            <Text style={styles.value}>
+              {pregnancyProfile.isPostpartum === true ? 'Aane' : pregnancyProfile.isPostpartum === false ? 'Daabi' : 'Unknown'}
+            </Text>
+          </View>
+
+          <View style={styles.detailRow}>
+            <Text style={styles.label}>Breastfeeding</Text>
+            <Text style={styles.value}>
+              {pregnancyProfile.isBreastfeeding === true ? 'Aane' : pregnancyProfile.isBreastfeeding === false ? 'Daabi' : 'Unknown'}
+            </Text>
+          </View>
+
+          <View style={styles.detailRow}>
             <Text style={styles.label}>Answered on</Text>
             <Text style={styles.value}>{formatAnsweredDate(pregnancyProfile.answeredAt)}</Text>
           </View>

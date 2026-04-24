@@ -197,6 +197,8 @@ export function applyPregnancyProfile(
     pregnancyProfile.isPregnant,
     pregnancyProfile.selectedMonth,
     pregnancyProfile.answeredAt,
+    pregnancyProfile.isPostpartum,
+    pregnancyProfile.isBreastfeeding,
   );
 
   session.clinical_summary = buildClinicalSummary(session.patientProfile, session.activeCase);

@@ -16,6 +16,8 @@ export type UserTurnKind = 'answer' | 'continuation' | 'new_concern' | 'unclear'
 export interface PregnancyProfile {
   isPregnant: boolean;
   selectedMonth: number | null;
+  isPostpartum?: boolean | null;
+  isBreastfeeding?: boolean | null;
   answeredAt: number;
 }
 

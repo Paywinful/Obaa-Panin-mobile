@@ -50,7 +50,10 @@ export function buildPregnancyContextMessages(profile: PregnancyProfile | null):
       {
         id: `pregnancy_profile_${profile.answeredAt}`,
         role: 'user',
-        content: `Pregnancy profile: user said she is not pregnant on ${answeredDate}.`,
+        content:
+          `Pregnancy profile: user said she is not pregnant on ${answeredDate}. ` +
+          `Postpartum: ${profile.isPostpartum === true ? 'yes' : profile.isPostpartum === false ? 'no' : 'unknown'}. ` +
+          `Breastfeeding: ${profile.isBreastfeeding === true ? 'yes' : profile.isBreastfeeding === false ? 'no' : 'unknown'}.`,
         timestamp: profile.answeredAt,
       },
     ];
@@ -66,7 +69,8 @@ export function buildPregnancyContextMessages(profile: PregnancyProfile | null):
       content:
         `Pregnancy profile: user confirmed pregnancy on ${answeredDate}. ` +
         `At that time she selected Bosome ${selectedMonth}. ` +
-        `Estimated current gestational age is about ${ageText}.`,
+        `Estimated current gestational age is about ${ageText}. ` +
+        `Breastfeeding: ${profile.isBreastfeeding === true ? 'yes' : profile.isBreastfeeding === false ? 'no' : 'unknown'}.`,
       timestamp: profile.answeredAt,
     },
   ];

@@ -69,10 +69,10 @@ export default function VoiceChatScreen() {
   }, [speak]);
 
   useEffect(() => {
-    if (!isLoading && isConsultationReady && hasSeenDisclaimer && !intakeComplete) {
+    if (!isLoading && isConsultationReady && !intakeComplete) {
       router.replace('/intake');
     }
-  }, [hasSeenDisclaimer, intakeComplete, isConsultationReady, isLoading, router]);
+  }, [intakeComplete, isConsultationReady, isLoading, router]);
 
   useEffect(() => {
     if (

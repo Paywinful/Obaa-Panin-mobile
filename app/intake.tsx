@@ -14,7 +14,7 @@ import { syncPregnancyProfile } from '../src/services/pregnancyProfileApi';
 import { useTextToSpeech } from '../src/hooks/useTextToSpeech';
 import { AppPhase, PregnancyProfile } from '../src/types';
 
-const intakeOptionsByStep: Record<'pregnancy' | 'months', PregnancyIntakeOption[]> = {
+const intakeOptionsByStep: Record<'pregnancy' | 'months' | 'postpartum' | 'breastfeeding', PregnancyIntakeOption[]> = {
   pregnancy: [
     { id: 'yes', label: 'Aane' },
     { id: 'no', label: 'Daabi' },
@@ -23,9 +23,71 @@ const intakeOptionsByStep: Record<'pregnancy' | 'months', PregnancyIntakeOption[
     id: `month_${index + 1}`,
     label: `Bosome ${index + 1}`,
   })),
+  postpartum: [
+    { id: 'yes', label: 'Aane' },
+    { id: 'no', label: 'Daabi' },
+  ],
+  breastfeeding: [
+    { id: 'yes', label: 'Aane' },
+    { id: 'no', label: 'Daabi' },
+  ],
 };
 
-type IntakeStep = 'pregnancy' | 'months';
+type IntakeStep = 'pregnancy' | 'months' | 'postpartum' | 'breastfeeding';
+
+type DraftProfile = {
+  isPregnant: boolean | null;
+  selectedMonth: number | null;
+  isPostpartum: boolean | null;
+  isBreastfeeding: boolean | null;
+};
+
+const TOTAL_STEPS = 4;
+const stepOrder: IntakeStep[] = ['pregnancy', 'months', 'postpartum', 'breastfeeding'];
+
+function getQuestion(step: IntakeStep): string {
+  if (step === 'pregnancy') return 'Woyem anaa?';
+  if (step === 'months') return 'Woanyinsen no adi bosome ahe?';
+  if (step === 'postpartum') return 'Woawo nnansa yi anaa?';
+  return 'Woma abofra nuofo anaa?';
+}
+
+function getPrompt(step: IntakeStep): string {
+  if (step === 'pregnancy') return 'Woyem anaa? Woyem a, aane. Wonnyem a, daabi.';
+  if (step === 'months') return 'Woanyinsen no adi bosome ahe?';
+  if (step === 'postpartum') return 'Woawo nnansa yi anaa?';
+  return 'Woma abofra nuofo anaa?';
+}
+
+function getHelperText(step: IntakeStep): string {
+  if (step === 'months') {
+    return 'Paw bosome a ene nyinsen no hyia.';
+  }
+
+  return 'Paw mmuae baako na toa so.';
+}
+
+function getStepPosition(step: IntakeStep): number {
+  return stepOrder.indexOf(step) + 1;
+}
+
+function buildCurrentAnswer(profile: PregnancyProfile): string {
+  const parts = [`Pregnant: ${profile.isPregnant ? 'Aane' : 'Daabi'}`];
+
+  if (profile.isPregnant && profile.selectedMonth) {
+    parts.push(`Bosome: ${profile.selectedMonth}`);
+  }
+
+  if (profile.isPostpartum != null) {
+    parts.push(`Postpartum: ${profile.isPostpartum ? 'Aane' : 'Daabi'}`);
+  }
+
+  if (profile.isBreastfeeding != null) {
+    parts.push(`Breastfeeding: ${profile.isBreastfeeding ? 'Aane' : 'Daabi'}`);
+  }
+
+  return parts.join('  |  ');
+}
 
 export default function IntakeScreen() {
   const params = useLocalSearchParams<{ mode?: string }>();
@@ -33,6 +95,12 @@ export default function IntakeScreen() {
   const [phase, setPhase] = useState<AppPhase>('idle');
   const [error, setError] = useState<string | null>(null);
   const [intakeStep, setIntakeStep] = useState<IntakeStep>('pregnancy');
+  const [draftProfile, setDraftProfile] = useState<DraftProfile>({
+    isPregnant: null,
+    selectedMonth: null,
+    isPostpartum: null,
+    isBreastfeeding: null,
+  });
   const {
     isReady,
     intakeComplete,
@@ -46,15 +114,21 @@ export default function IntakeScreen() {
   const isEditMode = params.mode === 'edit';
 
   const effectivePhase: AppPhase = isSpeaking ? 'speaking' : isGenerating ? 'processing' : phase;
-  const currentQuestion =
-    intakeStep === 'pregnancy' ? 'Woyem anaa?' : 'Woanyinsɛn no adi bosome ahe?';
-  const currentPrompt = useMemo(
-    () =>
-      intakeStep === 'pregnancy'
-        ? 'Woyem anaa? Woyem meaa, aane. Wonnyem meaa, daabi.'
-        : 'Woanyinsɛn no adi bosome ahe?',
-    [intakeStep],
-  );
+  const currentQuestion = useMemo(() => getQuestion(intakeStep), [intakeStep]);
+  const currentPrompt = useMemo(() => getPrompt(intakeStep), [intakeStep]);
+
+  useEffect(() => {
+    if (!isEditMode || !pregnancyProfile) {
+      return;
+    }
+
+    setDraftProfile({
+      isPregnant: pregnancyProfile.isPregnant,
+      selectedMonth: pregnancyProfile.selectedMonth,
+      isPostpartum: pregnancyProfile.isPostpartum ?? null,
+      isBreastfeeding: pregnancyProfile.isBreastfeeding ?? null,
+    });
+  }, [isEditMode, pregnancyProfile]);
 
   useEffect(() => {
     hasSpokenCurrentQuestionRef.current = false;
@@ -112,29 +186,61 @@ export default function IntakeScreen() {
 
     if (intakeStep === 'pregnancy') {
       if (optionId === 'yes') {
+        setDraftProfile({
+          isPregnant: true,
+          selectedMonth: null,
+          isPostpartum: false,
+          isBreastfeeding: null,
+        });
         setIntakeStep('months');
         return;
       }
 
-      await finishIntake({
+      setDraftProfile({
         isPregnant: false,
         selectedMonth: null,
-        answeredAt: Date.now(),
+        isPostpartum: null,
+        isBreastfeeding: null,
       });
+      setIntakeStep('postpartum');
       return;
     }
 
-    const selectedMonth = Number(optionId.replace('month_', ''));
-    if (!Number.isFinite(selectedMonth)) {
+    if (intakeStep === 'months') {
+      const selectedMonth = Number(optionId.replace('month_', ''));
+      if (!Number.isFinite(selectedMonth)) {
+        return;
+      }
+
+      setDraftProfile((current) => ({
+        ...current,
+        isPregnant: true,
+        selectedMonth,
+        isPostpartum: false,
+      }));
+      setIntakeStep('breastfeeding');
+      return;
+    }
+
+    if (intakeStep === 'postpartum') {
+      setDraftProfile((current) => ({
+        ...current,
+        isPregnant: false,
+        selectedMonth: null,
+        isPostpartum: optionId === 'yes',
+      }));
+      setIntakeStep('breastfeeding');
       return;
     }
 
     await finishIntake({
-      isPregnant: true,
-      selectedMonth,
+      isPregnant: draftProfile.isPregnant ?? false,
+      selectedMonth: draftProfile.isPregnant ? draftProfile.selectedMonth : null,
+      isPostpartum: draftProfile.isPregnant ? false : draftProfile.isPostpartum,
+      isBreastfeeding: optionId === 'yes',
       answeredAt: Date.now(),
     });
-  }, [finishIntake, intakeStep, stopSpeaking]);
+  }, [draftProfile, finishIntake, intakeStep, stopSpeaking]);
 
   if (isLoading || !isReady) {
     return null;
@@ -158,7 +264,7 @@ export default function IntakeScreen() {
           </Text>
           {isEditMode && pregnancyProfile ? (
             <Text style={styles.editHint}>
-              Current answer: {pregnancyProfile.isPregnant ? `Bosome ${pregnancyProfile.selectedMonth}` : 'Daabi'}
+              Current answers: {buildCurrentAnswer(pregnancyProfile)}
             </Text>
           ) : null}
         </View>
@@ -166,14 +272,10 @@ export default function IntakeScreen() {
         <View style={styles.cardArea}>
           <PregnancyIntakeCard
             question={currentQuestion}
-            helperText={
-              intakeStep === 'pregnancy'
-                ? 'Paw mmuae baako na toa so.'
-                : 'Paw bosome a ɛne nyinsɛn no hyia.'
-            }
+            helperText={getHelperText(intakeStep)}
             options={intakeOptionsByStep[intakeStep]}
-            step={intakeStep === 'pregnancy' ? 1 : 2}
-            totalSteps={2}
+            step={getStepPosition(intakeStep)}
+            totalSteps={TOTAL_STEPS}
             onSelect={handleSelection}
             onReplay={replayCurrentQuestion}
           />

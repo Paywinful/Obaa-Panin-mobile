@@ -9,10 +9,10 @@ import {
 import { detectMainSymptom } from '../../src/server/profileInference';
 import { getSession } from '../../src/server/sessionStore';
 import { PregnancyProfile, UserTurnKind } from '../../src/types';
-import { buildPromptWithSummary } from '../../src/utils/systemPrompt';
+import { buildPromptContext, buildPromptWithSummary } from '../../src/utils/systemPrompt';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-const MODEL = 'gemini-3.1-flash-lite-preview';
+const MODEL = 'gemini-2.5-flash';
 
 type YesNoAnswer = 'yes' | 'no';
 
@@ -25,6 +25,8 @@ function isValidPregnancyProfile(value: unknown): value is PregnancyProfile {
   return (
     typeof profile.isPregnant === 'boolean' &&
     (profile.selectedMonth === null || (Number.isInteger(profile.selectedMonth) && profile.selectedMonth >= 1 && profile.selectedMonth <= 9)) &&
+    (profile.isPostpartum == null || typeof profile.isPostpartum === 'boolean') &&
+    (profile.isBreastfeeding == null || typeof profile.isBreastfeeding === 'boolean') &&
     typeof profile.answeredAt === 'number'
   );
 }
@@ -242,7 +244,19 @@ export async function POST(request: Request): Promise<Response> {
     const lastMessage = normalizedMessages[normalizedMessages.length - 1];
     const rawUserText = lastMessage.content;
 
-    if (isValidPregnancyProfile(pregnancyProfile)) {
+    const hasPregnancyProfile = isValidPregnancyProfile(pregnancyProfile);
+
+    console.log(JSON.stringify({
+      type: 'chat_request_meta',
+      timestamp: new Date().toISOString(),
+      sessionId,
+      language,
+      messageCount: normalizedMessages.length,
+      hasPregnancyProfile,
+      pregnancyProfile: hasPregnancyProfile ? pregnancyProfile : null,
+    }));
+
+    if (hasPregnancyProfile) {
       applyPregnancyProfile(sessionId, pregnancyProfile);
     }
 
@@ -289,12 +303,27 @@ export async function POST(request: Request): Promise<Response> {
       turnKind,
     });
     const effectiveProbes = getEffectiveProbes(session.activeCase.probeTurnsUsed, clientAssistantTurns);
+    const promptContext = buildPromptContext({
+      profile: session.patientProfile,
+      caseState: session.activeCase,
+      language: language === 'en' ? 'en' : 'ak',
+      isFreshConversation: session.messages.length <= 1,
+    });
     const systemPrompt = buildPromptWithSummary({
       profile: session.patientProfile,
       caseState: session.activeCase,
       language: language === 'en' ? 'en' : 'ak',
       isFreshConversation: session.messages.length <= 1,
     });
+
+    console.log(JSON.stringify({
+      type: 'chat_prompt_context',
+      timestamp: new Date().toISOString(),
+      sessionId,
+      patientProfile: session.patientProfile,
+      activeCase: session.activeCase,
+      promptContextPreview: promptContext.slice(0, 1200),
+    }));
 
     if (shouldBypassFurtherProbing(
       effectiveProbes,
@@ -341,10 +370,22 @@ export async function POST(request: Request): Promise<Response> {
       };
     });
 
+    const generationContents = promptContext
+      ? [
+        {
+          role: 'user' as const,
+          parts: [{
+            text: `Structured consultation context. Treat this as source-of-truth state for the consultation.\n\n${promptContext}`,
+          }],
+        },
+        ...contents,
+      ]
+      : contents;
+
     const result = await ai.models.generateContent({
       model: MODEL,
       config: { systemInstruction: systemPrompt },
-      contents,
+      contents: generationContents,
     });
 
     const rawText = result.text?.trim() || '';

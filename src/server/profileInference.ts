@@ -90,11 +90,14 @@ export function applyPregnancyProfileToPatientProfile(
   isPregnant: boolean,
   selectedMonth: number | null,
   answeredAt: number,
+  isPostpartum?: boolean | null,
+  isBreastfeeding?: boolean | null,
 ): void {
   patientProfile.isPregnant = isPregnant;
   patientProfile.pregnancyAnsweredAt = answeredAt;
-  patientProfile.pregnancySelectedMonth = selectedMonth;
-  patientProfile.isPostpartum = isPregnant ? false : patientProfile.isPostpartum;
+  patientProfile.pregnancySelectedMonth = isPregnant ? selectedMonth : null;
+  patientProfile.isPostpartum = isPregnant ? false : (isPostpartum ?? null);
+  patientProfile.isBreastfeeding = isBreastfeeding ?? null;
   patientProfile.gestationalWeeks =
     isPregnant && selectedMonth ? inferPregnancyWeeksFromMonth(selectedMonth, answeredAt) : null;
 }

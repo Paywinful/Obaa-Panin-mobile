@@ -10,6 +10,8 @@ function isValidPregnancyProfile(value: unknown): value is PregnancyProfile {
   return (
     typeof profile.isPregnant === 'boolean' &&
     (profile.selectedMonth === null || (Number.isInteger(profile.selectedMonth) && profile.selectedMonth >= 1 && profile.selectedMonth <= 9)) &&
+    (profile.isPostpartum == null || typeof profile.isPostpartum === 'boolean') &&
+    (profile.isBreastfeeding == null || typeof profile.isBreastfeeding === 'boolean') &&
     typeof profile.answeredAt === 'number'
   );
 }

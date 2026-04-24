@@ -7,6 +7,16 @@ const LANGUAGE_KEY = 'obaapayin_language';
 const SESSION_ID_KEY = 'obaapayin_session_id';
 const PREGNANCY_PROFILE_KEY = 'obaapayin_pregnancy_profile';
 
+function normalizePregnancyProfile(profile: PregnancyProfile): PregnancyProfile {
+  return {
+    isPregnant: profile.isPregnant,
+    selectedMonth: profile.selectedMonth,
+    isPostpartum: profile.isPostpartum ?? null,
+    isBreastfeeding: profile.isBreastfeeding ?? null,
+    answeredAt: profile.answeredAt,
+  };
+}
+
 interface ConsultationContextValue {
   isReady: boolean;
   language: LanguageCode;
@@ -60,7 +70,7 @@ export function ConsultationProvider({ children }: { children: React.ReactNode }
         }
 
         if (storedProfile) {
-          const parsedProfile = JSON.parse(storedProfile) as PregnancyProfile;
+          const parsedProfile = normalizePregnancyProfile(JSON.parse(storedProfile) as PregnancyProfile);
           setPregnancyProfile(parsedProfile);
           setIntakeComplete(true);
         }
@@ -84,9 +94,10 @@ export function ConsultationProvider({ children }: { children: React.ReactNode }
   }, []);
 
   const completeIntake = useCallback(async (profile: PregnancyProfile) => {
-    setPregnancyProfile(profile);
+    const normalizedProfile = normalizePregnancyProfile(profile);
+    setPregnancyProfile(normalizedProfile);
     setIntakeComplete(true);
-    await AsyncStorage.setItem(PREGNANCY_PROFILE_KEY, JSON.stringify(profile));
+    await AsyncStorage.setItem(PREGNANCY_PROFILE_KEY, JSON.stringify(normalizedProfile));
   }, []);
 
   const resetIntake = useCallback(async () => {
