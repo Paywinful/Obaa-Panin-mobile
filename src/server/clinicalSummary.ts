@@ -1,5 +1,5 @@
 import { GoogleGenAI } from '@google/genai';
-import { ActiveCaseState, PatientProfile, PromptContext } from '../types';
+import { ActiveCaseState, EncounterSummary, PatientProfile, PromptContext } from '../types';
 import { SessionMessage } from './sessionStore';
 import { buildPromptContext } from '../utils/systemPrompt';
 
@@ -48,10 +48,12 @@ export function sanitizeActiveCase(caseState: ActiveCaseState): ActiveCaseState 
 export function buildClinicalSummary(
   patientProfile: PatientProfile,
   activeCase: ActiveCaseState,
+  recentEncounters: EncounterSummary[] = [],
 ): string {
   const promptContext: PromptContext = {
     profile: patientProfile,
     caseState: sanitizeActiveCase(activeCase),
+    recentEncounters,
   };
 
   return buildPromptContext(promptContext);

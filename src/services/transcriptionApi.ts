@@ -1,5 +1,5 @@
 import { LanguageCode } from '../types';
-import { getApiUrl } from '../utils/getApiUrl';
+import { getAsrApiUrl } from '../utils/serviceUrls';
 import { RecordedAudio } from '../hooks/useAudioCapture';
 
 function mapLanguage(language: LanguageCode): string {
@@ -11,7 +11,7 @@ export async function transcribeAudio(
   language: LanguageCode,
 ): Promise<string> {
   const formData = new FormData();
-  formData.append('audio', {
+  formData.append('file', {
     uri: audio.uri,
     type: audio.mimeType,
     name: audio.fileName,
@@ -19,7 +19,7 @@ export async function transcribeAudio(
   formData.append('language', mapLanguage(language));
   formData.append('isImpaired', 'false');
 
-  const response = await fetch(`${getApiUrl()}/api/transcribe`, {
+  const response = await fetch(getAsrApiUrl(), {
     method: 'POST',
     body: formData,
   });

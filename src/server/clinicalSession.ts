@@ -7,7 +7,7 @@ import {
   updateCaseAfterAssistantTurn,
 } from './profileInference';
 import { getSession, Session, updateSession } from './sessionStore';
-import { ClinicalAction, MedicineConfidence, PregnancyProfile, UserTurnKind } from '../types';
+import { ClinicalAction, EncounterSummary, MedicineConfidence, PregnancyProfile, UserTurnKind } from '../types';
 
 const DEFAULT_REPLY = 'Mepa wo kyɛw, san ka nea ɛrekɔ so no bio ma mente ase yiye.';
 
@@ -45,6 +45,63 @@ export function logConversationTurn(payload: ConversationLogPayload): void {
 function trimSessionMessages(session: Session): void {
   if (session.messages.length > 6) {
     session.messages = session.messages.slice(-6);
+  }
+}
+
+function trimEncounterSummaries(session: Session): void {
+  if (session.recentEncounters.length > 12) {
+    session.recentEncounters = session.recentEncounters.slice(-12);
+  }
+}
+
+function buildPregnancyContext(session: Session): string {
+  const profile = session.patientProfile;
+
+  if (profile.isPregnant) {
+    return profile.gestationalWeeks
+      ? `pregnant at about ${profile.gestationalWeeks} weeks`
+      : profile.pregnancySelectedMonth
+        ? `pregnant around month ${profile.pregnancySelectedMonth}`
+        : 'pregnant';
+  }
+
+  if (profile.isPostpartum) {
+    return profile.isBreastfeeding ? 'postpartum and breastfeeding' : 'postpartum';
+  }
+
+  if (profile.isBreastfeeding) {
+    return 'breastfeeding';
+  }
+
+  return 'pregnancy status not clinically active';
+}
+
+function upsertEncounterSummary(
+  session: Session,
+  action: ClinicalAction,
+  reply: string,
+): void {
+  if (action === 'probe') {
+    return;
+  }
+
+  const summary: EncounterSummary = {
+    timestamp: Date.now(),
+    mainSymptom: session.activeCase.mainSymptom,
+    onset: session.activeCase.onset,
+    severity: session.activeCase.severity,
+    dangerSignsKnown: [...(session.activeCase.dangerSignsKnown || [])],
+    adviceGiven: reply,
+    triageLevel: action,
+    pregnancyContext: buildPregnancyContext(session),
+  };
+
+  const lastSummary = session.recentEncounters[session.recentEncounters.length - 1];
+  if (lastSummary && lastSummary.mainSymptom === summary.mainSymptom) {
+    session.recentEncounters[session.recentEncounters.length - 1] = summary;
+  } else {
+    session.recentEncounters.push(summary);
+    trimEncounterSummaries(session);
   }
 }
 
@@ -119,7 +176,7 @@ export async function recordUserTurn(
   userText: string,
   options?: { rawUserText?: string; turnKind?: UserTurnKind },
 ): Promise<Session> {
-  const session = getSession(sessionId);
+  const session = await getSession(sessionId);
 
   logConversationTurn({
     sessionId,
@@ -133,7 +190,11 @@ export async function recordUserTurn(
   session.activeCase.latestUserTurnRaw = options?.rawUserText || userText;
   inferActiveCase(userText, session.activeCase, options?.turnKind);
   session.activeCase = sanitizeActiveCase(session.activeCase);
-  session.clinical_summary = buildClinicalSummary(session.patientProfile, session.activeCase);
+  session.clinical_summary = buildClinicalSummary(
+    session.patientProfile,
+    session.activeCase,
+    session.recentEncounters,
+  );
 
   if (shouldRefineSummary(session.messages.length + 1)) {
     session.activeCase = await refineSummaryWithLLM(
@@ -142,23 +203,27 @@ export async function recordUserTurn(
       session.activeCase,
       session.messages,
     );
-    session.clinical_summary = buildClinicalSummary(session.patientProfile, session.activeCase);
+    session.clinical_summary = buildClinicalSummary(
+      session.patientProfile,
+      session.activeCase,
+      session.recentEncounters,
+    );
   }
 
   session.messages.push({ role: 'user', content: userText });
   trimSessionMessages(session);
 
-  updateSession(sessionId, session);
+  await updateSession(sessionId, session);
   return session;
 }
 
-export function persistAssistantTurn(
+export async function persistAssistantTurn(
   sessionId: string,
   reply: string,
   action: ClinicalAction,
   identifiedMedicine?: string,
-): Session {
-  const session = getSession(sessionId);
+): Promise<Session> {
+  const session = await getSession(sessionId);
 
   updateCaseAfterAssistantTurn(session.activeCase, action, reply);
 
@@ -170,8 +235,13 @@ export function persistAssistantTurn(
 
   session.messages.push({ role: 'model', content: reply });
   trimSessionMessages(session);
+  upsertEncounterSummary(session, action, reply);
   session.activeCase = sanitizeActiveCase(session.activeCase);
-  session.clinical_summary = buildClinicalSummary(session.patientProfile, session.activeCase);
+  session.clinical_summary = buildClinicalSummary(
+    session.patientProfile,
+    session.activeCase,
+    session.recentEncounters,
+  );
 
   logConversationTurn({
     sessionId,
@@ -182,15 +252,15 @@ export function persistAssistantTurn(
     meta: identifiedMedicine ? { identifiedMedicine } : undefined,
   });
 
-  updateSession(sessionId, session);
+  await updateSession(sessionId, session);
   return session;
 }
 
-export function applyPregnancyProfile(
+export async function applyPregnancyProfile(
   sessionId: string,
   pregnancyProfile: PregnancyProfile,
-): Session {
-  const session = getSession(sessionId);
+): Promise<Session> {
+  const session = await getSession(sessionId);
 
   applyPregnancyProfileToPatientProfile(
     session.patientProfile,
@@ -201,7 +271,11 @@ export function applyPregnancyProfile(
     pregnancyProfile.isBreastfeeding,
   );
 
-  session.clinical_summary = buildClinicalSummary(session.patientProfile, session.activeCase);
-  updateSession(sessionId, session);
+  session.clinical_summary = buildClinicalSummary(
+    session.patientProfile,
+    session.activeCase,
+    session.recentEncounters,
+  );
+  await updateSession(sessionId, session);
   return session;
 }

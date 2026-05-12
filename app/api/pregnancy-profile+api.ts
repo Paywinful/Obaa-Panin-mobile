@@ -28,7 +28,7 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    applyPregnancyProfile(sessionId, pregnancyProfile);
+    await applyPregnancyProfile(sessionId, pregnancyProfile);
 
     return new Response(
       JSON.stringify({ ok: true }),

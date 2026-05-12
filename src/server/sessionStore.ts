@@ -1,4 +1,8 @@
-import { ActiveCaseState, ClinicalAction, PatientProfile } from '../types';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ActiveCaseState, ClinicalAction, EncounterSummary, PatientProfile } from '../types';
+
+const SESSION_STORAGE_PREFIX = 'obaapayin_clinical_session:';
+const MAX_RECENT_ENCOUNTERS = 12;
 
 export interface SessionMessage {
   role: 'user' | 'model';
@@ -10,6 +14,7 @@ export interface Session {
   activeCase: ActiveCaseState;
   clinical_summary: string;
   messages: SessionMessage[];
+  recentEncounters: EncounterSummary[];
 }
 
 function createDefaultPatientProfile(): PatientProfile {
@@ -47,28 +52,83 @@ function createDefaultActiveCase(): ActiveCaseState {
   };
 }
 
-const sessions = new Map<string, Session>();
+function createDefaultSession(): Session {
+  return {
+    patientProfile: createDefaultPatientProfile(),
+    activeCase: createDefaultActiveCase(),
+    clinical_summary: '',
+    messages: [],
+    recentEncounters: [],
+  };
+}
 
-export function getSession(id: string = 'default'): Session {
-  let session = sessions.get(id);
-  if (!session) {
-    session = {
-      patientProfile: createDefaultPatientProfile(),
-      activeCase: createDefaultActiveCase(),
-      clinical_summary: '',
-      messages: [],
-    };
-    sessions.set(id, session);
+function getStorageKey(id: string): string {
+  return `${SESSION_STORAGE_PREFIX}${id || 'default'}`;
+}
+
+function sanitizeSession(input: Partial<Session> | null | undefined): Session {
+  const defaults = createDefaultSession();
+
+  return {
+    patientProfile: {
+      ...defaults.patientProfile,
+      ...(input?.patientProfile || {}),
+    },
+    activeCase: {
+      ...defaults.activeCase,
+      ...(input?.activeCase || {}),
+      dangerSignsKnown: Array.isArray(input?.activeCase?.dangerSignsKnown)
+        ? input?.activeCase?.dangerSignsKnown
+        : defaults.activeCase.dangerSignsKnown,
+      symptomsStillActive: Array.isArray(input?.activeCase?.symptomsStillActive)
+        ? input?.activeCase?.symptomsStillActive
+        : defaults.activeCase.symptomsStillActive,
+      adviceAlreadyGiven: Array.isArray(input?.activeCase?.adviceAlreadyGiven)
+        ? input?.activeCase?.adviceAlreadyGiven
+        : defaults.activeCase.adviceAlreadyGiven,
+    },
+    clinical_summary: typeof input?.clinical_summary === 'string' ? input.clinical_summary : '',
+    messages: Array.isArray(input?.messages)
+      ? input.messages.filter(
+        (message): message is SessionMessage =>
+          Boolean(message) &&
+          (message.role === 'user' || message.role === 'model') &&
+          typeof message.content === 'string',
+      )
+      : [],
+    recentEncounters: Array.isArray(input?.recentEncounters)
+      ? input.recentEncounters
+        .filter(
+          (summary): summary is EncounterSummary =>
+            Boolean(summary) &&
+            typeof summary.timestamp === 'number' &&
+            typeof summary.adviceGiven === 'string' &&
+            typeof summary.triageLevel === 'string',
+        )
+        .slice(-MAX_RECENT_ENCOUNTERS)
+      : [],
+  };
+}
+
+export async function getSession(id: string = 'default'): Promise<Session> {
+  const raw = await AsyncStorage.getItem(getStorageKey(id));
+  if (!raw) {
+    return createDefaultSession();
   }
-  return session;
+
+  try {
+    return sanitizeSession(JSON.parse(raw) as Partial<Session>);
+  } catch {
+    return createDefaultSession();
+  }
 }
 
-export function updateSession(id: string, session: Session): void {
-  sessions.set(id, session);
+export async function updateSession(id: string, session: Session): Promise<void> {
+  await AsyncStorage.setItem(getStorageKey(id), JSON.stringify(sanitizeSession(session)));
 }
 
-export function clearSession(id: string = 'default'): void {
-  sessions.delete(id);
+export async function clearSession(id: string = 'default'): Promise<void> {
+  await AsyncStorage.removeItem(getStorageKey(id));
 }
 
 export function resetActiveCase(session: Session): void {

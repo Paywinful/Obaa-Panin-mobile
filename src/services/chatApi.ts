@@ -1,5 +1,5 @@
 import { ChatResponse, LanguageCode, Message, PregnancyProfile } from '../types';
-import { getApiUrl } from '../utils/getApiUrl';
+import { sendDirectChatMessage } from './directChatApi';
 
 export async function sendChatMessage(
   messages: Message[],
@@ -7,29 +7,5 @@ export async function sendChatMessage(
   sessionId?: string,
   pregnancyProfile?: PregnancyProfile | null,
 ): Promise<ChatResponse> {
-  try {
-    const response = await fetch(`${getApiUrl()}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        messages: messages.map((m) => ({
-          role: m.role,
-          content: m.content,
-        })),
-        language,
-        sessionId,
-        pregnancyProfile,
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      return { content: '', error: errorText || 'Request failed' };
-    }
-
-    const data = await response.json();
-    return { content: data.content, action: data.action, is_emergency: data.is_emergency };
-  } catch {
-    return { content: '', error: 'Network error. Please try again.' };
-  }
+  return sendDirectChatMessage(messages, language, sessionId, pregnancyProfile);
 }

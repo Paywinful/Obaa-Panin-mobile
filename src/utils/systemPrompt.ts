@@ -210,6 +210,30 @@ function formatConversationState(isFreshConversation: boolean | undefined): stri
   ].join('\n');
 }
 
+function formatRecentEncounters(encounters: PromptContext['recentEncounters']): string {
+  if (!encounters?.length) {
+    return 'RECENT ENCOUNTER NOTES\n- None recorded yet.';
+  }
+
+  return [
+    'RECENT ENCOUNTER NOTES',
+    ...encounters.slice(-3).map((encounter, index) => {
+      const parts = [
+        `${index + 1}. Date: ${new Date(encounter.timestamp).toISOString()}`,
+        `- Main symptom: ${encounter.mainSymptom ?? 'unknown'}`,
+        `- Triage level: ${encounter.triageLevel}`,
+        `- Onset: ${encounter.onset ?? 'unknown'}`,
+        `- Severity: ${encounter.severity ?? 'unknown'}`,
+        `- Danger signs known: ${encounter.dangerSignsKnown?.join(', ') || 'none known'}`,
+        `- Pregnancy context: ${encounter.pregnancyContext ?? 'unknown'}`,
+        `- Advice given: ${encounter.adviceGiven}`,
+      ];
+
+      return parts.join('\n');
+    }),
+  ].join('\n');
+}
+
 export function buildPromptContext(ctx: PromptContext): string {
   const blocks: string[] = [];
 
@@ -221,6 +245,10 @@ export function buildPromptContext(ctx: PromptContext): string {
 
   if (ctx.caseState) {
     blocks.push(formatCaseState(ctx.caseState));
+  }
+
+  if (ctx.recentEncounters) {
+    blocks.push(formatRecentEncounters(ctx.recentEncounters));
   }
 
   if (ctx.language === 'en') {

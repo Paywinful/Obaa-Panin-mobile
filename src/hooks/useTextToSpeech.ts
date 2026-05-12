@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { AudioModule, createAudioPlayer } from 'expo-audio';
-import { getApiUrl } from '../utils/getApiUrl';
+import { getTtsApiUrl } from '../utils/serviceUrls';
 
 interface UseTextToSpeechReturn {
   speak: (text: string) => Promise<void>;
@@ -30,7 +30,7 @@ export function useTextToSpeech(): UseTextToSpeechReturn {
 
       await AudioModule.setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
 
-      const response = await fetch(`${getApiUrl()}/api/tts`, {
+      const response = await fetch(getTtsApiUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text }),
@@ -42,13 +42,26 @@ export function useTextToSpeech(): UseTextToSpeechReturn {
         throw new Error(`TTS request failed (${response.status}): ${errText}`);
       }
 
-      const data = await response.json();
-      const base64 = `data:${data.contentType};base64,${data.audio}`;
+      const contentType = response.headers.get('Content-Type') || '';
+      let audioUri = '';
+
+      if (contentType.includes('application/json')) {
+        const data = await response.json();
+        audioUri = `data:${data.contentType};base64,${data.audio}`;
+      } else {
+        const audioBlob = await response.blob();
+        const reader = new FileReader();
+        audioUri = await new Promise<string>((resolve, reject) => {
+          reader.onerror = () => reject(new Error('Failed to read TTS audio response'));
+          reader.onloadend = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+          reader.readAsDataURL(audioBlob);
+        });
+      }
 
       if (currentPlay !== playCountRef.current) return;
 
       // Create a fresh player for each playback
-      const player = createAudioPlayer({ uri: base64 });
+      const player = createAudioPlayer({ uri: audioUri });
       playerRef.current = player;
 
       setIsGenerating(false);

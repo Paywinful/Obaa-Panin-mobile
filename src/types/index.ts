@@ -52,9 +52,21 @@ export interface ActiveCaseState {
   latestUserTurnRaw?: string;
 }
 
+export interface EncounterSummary {
+  timestamp: number;
+  mainSymptom?: string;
+  onset?: string;
+  severity?: string;
+  dangerSignsKnown?: string[];
+  adviceGiven: string;
+  triageLevel: ClinicalAction;
+  pregnancyContext?: string;
+}
+
 export interface PromptContext {
   profile?: PatientProfile;
   caseState?: ActiveCaseState;
+  recentEncounters?: EncounterSummary[];
   language?: 'ak' | 'en';
   isFreshConversation?: boolean;
 }

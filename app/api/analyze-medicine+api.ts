@@ -73,7 +73,7 @@ export async function POST(request: Request): Promise<Response> {
         ? parsed.identifiedMedicine
         : undefined;
 
-    persistAssistantTurn(sessionId, parsed.reply, parsed.action, identifiedMedicine);
+    await persistAssistantTurn(sessionId, parsed.reply, parsed.action, identifiedMedicine);
 
     return new Response(
       JSON.stringify({

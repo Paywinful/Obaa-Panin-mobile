@@ -1,17 +1,16 @@
-import { GoogleGenAI } from '@google/genai';
 import {
   applyPregnancyProfile,
   extractClinicalResponse,
   logConversationTurn,
   persistAssistantTurn,
   recordUserTurn,
-} from '../../src/server/clinicalSession';
-import { detectMainSymptom } from '../../src/server/profileInference';
-import { getSession } from '../../src/server/sessionStore';
-import { PregnancyProfile, UserTurnKind } from '../../src/types';
-import { buildPromptContext, buildPromptWithSummary } from '../../src/utils/systemPrompt';
+} from '../server/clinicalSession';
+import { detectMainSymptom } from '../server/profileInference';
+import { getSession } from '../server/sessionStore';
+import { PregnancyProfile, UserTurnKind, ChatResponse, LanguageCode, Message } from '../types';
+import { buildPromptContext, buildPromptWithSummary } from '../utils/systemPrompt';
+import { geminiClient } from './geminiRuntime';
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 const MODEL = 'gemini-2.5-flash';
 
 type YesNoAnswer = 'yes' | 'no';
@@ -180,9 +179,9 @@ async function rewriteAsDirectGuidance(
     ? `Rewrite this as short, direct, practical guidance. Do not ask any question. Return only JSON with action "routine" and the rewritten reply.\n\nDraft: ${draftReply}`
     : `San kyerɛw mmuae yi ma ɛnyɛ akwankyerɛ tẽẽ, tiawa, na ɛmmoa ntɛm. Mmmisa asɛm biara. Fa JSON nko ara san ba, na action no nyɛ "routine".\n\nDraft: ${draftReply}`;
 
-  const result = await ai.models.generateContent({
+  const result = await geminiClient.models.generateContent({
     model: MODEL,
-    config: { systemInstruction: systemPrompt },
+    systemInstruction: systemPrompt,
     contents: [{ role: 'user', parts: [{ text: rewritePrompt }] }],
   });
 
@@ -199,9 +198,9 @@ async function generateDirectGuidance(
     ? `Give short, direct, practical guidance for this active complaint. Do not ask any question. Do not restart the consultation. Return only JSON with action "routine".\n\nActive complaint: ${activeComplaint}\nLatest user turn: ${latestUserText}`
     : `Fa akwankyerɛ tẽẽ, tiawa, na ɛboa ntɛm ma yadeɛ yi. Mmmisa asɛm biara. Mfi ase bio sɛ nkɔmmɔ foforo. Fa JSON nko ara san ba, na action no nyɛ "routine".\n\nYareɛ titiriw: ${activeComplaint}\nMmuae a ɔde aba seesei: ${latestUserText}`;
 
-  const result = await ai.models.generateContent({
+  const result = await geminiClient.models.generateContent({
     model: MODEL,
-    config: { systemInstruction: systemPrompt },
+    systemInstruction: systemPrompt,
     contents: [{ role: 'user', parts: [{ text: guidancePrompt }] }],
   });
 
@@ -214,49 +213,33 @@ function buildRepeatReply(language: string): string {
     : 'Mepa wo kyɛw, mante ase yiye. San ka no bio tiawa ma mente ase.';
 }
 
-export async function POST(request: Request): Promise<Response> {
+export async function sendDirectChatMessage(
+  messages: Message[],
+  language: LanguageCode = 'twi',
+  sessionId = 'default',
+  pregnancyProfile?: PregnancyProfile | null,
+): Promise<ChatResponse> {
   try {
-    const body = await request.json();
-    const { messages, language = 'twi', sessionId = 'default', pregnancyProfile } = body;
-
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
-      return new Response(
-        JSON.stringify({ error: 'Messages array is required' }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } },
-      );
+      return { content: '', error: 'Messages array is required' };
     }
 
     const normalizedMessages = messages
       .filter((message) => message && typeof message.content === 'string')
       .map((message) => ({
-        role: message.role === 'assistant' || message.role === 'model' ? 'model' : 'user',
+        role: message.role === 'assistant' ? 'model' : 'user',
         content: message.content.trim(),
       }))
       .filter((message) => message.content.length > 0);
 
     if (normalizedMessages.length === 0) {
-      return new Response(
-        JSON.stringify({ error: 'At least one non-empty message is required' }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } },
-      );
+      return { content: '', error: 'At least one non-empty message is required' };
     }
 
     const lastMessage = normalizedMessages[normalizedMessages.length - 1];
     const rawUserText = lastMessage.content;
 
-    const hasPregnancyProfile = isValidPregnancyProfile(pregnancyProfile);
-
-    console.log(JSON.stringify({
-      type: 'chat_request_meta',
-      timestamp: new Date().toISOString(),
-      sessionId,
-      language,
-      messageCount: normalizedMessages.length,
-      hasPregnancyProfile,
-      pregnancyProfile: hasPregnancyProfile ? pregnancyProfile : null,
-    }));
-
-    if (hasPregnancyProfile) {
+    if (isValidPregnancyProfile(pregnancyProfile)) {
       await applyPregnancyProfile(sessionId, pregnancyProfile);
     }
 
@@ -286,19 +269,16 @@ export async function POST(request: Request): Promise<Response> {
         action: 'probe',
         source: 'system',
       });
-      return new Response(
-        JSON.stringify({
-          content: repeatReply,
-          action: 'probe',
-          is_emergency: false,
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      );
+      return {
+        content: repeatReply,
+        action: 'probe',
+        is_emergency: false,
+      };
     }
 
     const clientAssistantTurns = normalizedMessages.filter((m) => m.role === 'model').length;
 
-    const session = await recordUserTurn(ai, sessionId, userText, {
+    const session = await recordUserTurn(geminiClient as any, sessionId, userText, {
       rawUserText,
       turnKind,
     });
@@ -318,15 +298,6 @@ export async function POST(request: Request): Promise<Response> {
       isFreshConversation: session.messages.length <= 1,
     });
 
-    console.log(JSON.stringify({
-      type: 'chat_prompt_context',
-      timestamp: new Date().toISOString(),
-      sessionId,
-      patientProfile: session.patientProfile,
-      activeCase: session.activeCase,
-      promptContextPreview: promptContext.slice(0, 1200),
-    }));
-
     if (shouldBypassFurtherProbing(
       effectiveProbes,
       session.activeCase.dangerSignsKnown || [],
@@ -340,14 +311,11 @@ export async function POST(request: Request): Promise<Response> {
 
       await persistAssistantTurn(sessionId, directReply, 'routine');
 
-      return new Response(
-        JSON.stringify({
-          content: directReply,
-          action: 'routine',
-          is_emergency: false,
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      );
+      return {
+        content: directReply,
+        action: 'routine',
+        is_emergency: false,
+      };
     }
 
     const contents = session.messages.slice(-6).map((message, index, recentMessages) => {
@@ -355,7 +323,7 @@ export async function POST(request: Request): Promise<Response> {
         index === recentMessages.length - 1 && message.role !== 'model';
 
       return {
-        role: message.role === 'model' ? 'model' : 'user',
+        role: message.role === 'model' ? 'model' as const : 'user' as const,
         parts: [{
           text: isLatestUserMessage
             ? buildUserTurnText(
@@ -384,9 +352,9 @@ export async function POST(request: Request): Promise<Response> {
       ]
       : contents;
 
-    const result = await ai.models.generateContent({
+    const result = await geminiClient.models.generateContent({
       model: MODEL,
-      config: { systemInstruction: systemPrompt },
+      systemInstruction: systemPrompt,
       contents: generationContents,
     });
 
@@ -406,24 +374,18 @@ export async function POST(request: Request): Promise<Response> {
 
     await persistAssistantTurn(sessionId, reply, action);
 
-    return new Response(
-      JSON.stringify({
-        content: reply,
-        action,
-        is_emergency: action === 'emergency',
-      }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } },
-    );
+    return {
+      content: reply,
+      action,
+      is_emergency: action === 'emergency',
+    };
   } catch (error) {
-    console.error('Chat API error:', error);
-    return new Response(
-      JSON.stringify({
-        content: 'Mfomso aba wɛ system no mu. Yɛsrɛ wo bɔ mmɔden bio.',
-        action: 'probe',
-        is_emergency: false,
-        error: 'Failed to get response',
-      }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } },
-    );
+    console.error('Direct chat error:', error);
+    return {
+      content: 'Mfomso aba wɔ system no mu. Yɛsrɛ wo bɔ mmɔden bio.',
+      action: 'probe',
+      is_emergency: false,
+      error: error instanceof Error ? error.message : 'Failed to get response',
+    };
   }
 }
